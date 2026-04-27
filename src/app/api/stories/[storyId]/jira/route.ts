@@ -1,6 +1,64 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { triggerJiraSync } from "@/lib/n8n";
+import type { GeneratedStory, AcceptanceCriterion } from "@/lib/types";
+
+function buildJiraPayload(
+  story: GeneratedStory,
+  projectKey: string,
+  storyPointsFieldId: string
+) {
+  const ac = Array.isArray(story.acceptance_criteria)
+    ? story.acceptance_criteria
+    : typeof story.acceptance_criteria === "string"
+      ? JSON.parse(story.acceptance_criteria)
+      : [];
+
+  const acText = ac
+    .map(
+      (c: AcceptanceCriterion, i: number) =>
+        `AC${i + 1}: Given ${c.given}, When ${c.when}, Then ${c.then}`
+    )
+    .join("\n");
+
+  const description = `As a ${story.persona}, I want ${story.action}, so that ${story.benefit}.\n\n*Acceptance Criteria:*\n${acText}`;
+
+  const priorityMap: Record<string, string> = {
+    highest: "Highest",
+    high: "High",
+    medium: "Medium",
+    low: "Low",
+    lowest: "Lowest",
+  };
+
+  const payload: Record<string, unknown> = {
+    fields: {
+      project: { key: projectKey },
+      summary: story.title,
+      description: {
+        type: "doc",
+        version: 1,
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: description }],
+          },
+        ],
+      },
+      issuetype: { name: "Story" },
+      ...(story.priority && {
+        priority: { name: priorityMap[story.priority] || "Medium" },
+      }),
+      ...(story.labels?.length && {
+        labels: Array.isArray(story.labels) ? story.labels : [],
+      }),
+      ...(story.story_points && {
+        [storyPointsFieldId]: story.story_points,
+      }),
+    },
+  };
+
+  return payload;
+}
 
 export async function POST(
   request: Request,
@@ -25,17 +83,21 @@ export async function POST(
     .eq("id", user.id)
     .single();
 
-  if (!profile?.jira_base_url || !profile?.jira_email || !profile?.jira_api_token) {
+  if (
+    !profile?.jira_base_url ||
+    !profile?.jira_email ||
+    !profile?.jira_api_token
+  ) {
     return NextResponse.json(
-      { error: "Jira credentials not configured" },
+      { error: "Jira credentials not configured. Update your profile with Jira base URL, email, and API token." },
       { status: 400 }
     );
   }
 
-  // Get the story's project key
+  // Get story
   const { data: story } = await supabase
     .from("generated_stories")
-    .select("project_id")
+    .select("*")
     .eq("id", storyId)
     .single();
 
@@ -43,6 +105,7 @@ export async function POST(
     return NextResponse.json({ error: "Story not found" }, { status: 404 });
   }
 
+  // Get project key
   const { data: project } = await supabase
     .from("projects")
     .select("jira_project_key")
@@ -51,26 +114,71 @@ export async function POST(
 
   if (!project?.jira_project_key) {
     return NextResponse.json(
-      { error: "Jira project key not set" },
+      { error: "Jira project key not set on this project" },
       { status: 400 }
     );
   }
 
-  try {
-    await triggerJiraSync({
-      story_id: storyId,
-      dry_run: dry_run ?? true,
-      jira_base_url: profile.jira_base_url,
-      jira_email: profile.jira_email,
-      jira_api_token: profile.jira_api_token,
-      jira_project_key: project.jira_project_key,
-    });
-  } catch {
+  const storyPointsFieldId =
+    process.env.JIRA_STORY_POINTS_FIELD_ID || "customfield_10016";
+
+  const payload = buildJiraPayload(
+    story as GeneratedStory,
+    project.jira_project_key,
+    storyPointsFieldId
+  );
+
+  // Dry run: return the payload without sending
+  if (dry_run) {
+    await supabase
+      .from("generated_stories")
+      .update({
+        jira_dry_run_payload: payload,
+        jira_sync_status: "dry_run",
+      })
+      .eq("id", storyId);
+
+    return NextResponse.json({ payload });
+  }
+
+  // Real push to Jira
+  const jiraUrl = `${profile.jira_base_url}/rest/api/3/issue`;
+  const authHeader = Buffer.from(
+    `${profile.jira_email}:${profile.jira_api_token}`
+  ).toString("base64");
+
+  const jiraRes = await fetch(jiraUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${authHeader}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!jiraRes.ok) {
+    const errBody = await jiraRes.text();
+    await supabase
+      .from("generated_stories")
+      .update({ jira_sync_status: "error" })
+      .eq("id", storyId);
+
     return NextResponse.json(
-      { error: "Failed to reach n8n" },
-      { status: 502 }
+      { error: `Jira API error: ${errBody}` },
+      { status: jiraRes.status }
     );
   }
 
-  return NextResponse.json({ ok: true });
+  const jiraData = await jiraRes.json();
+
+  await supabase
+    .from("generated_stories")
+    .update({
+      jira_issue_key: jiraData.key,
+      jira_sync_status: "synced",
+      jira_synced_at: new Date().toISOString(),
+    })
+    .eq("id", storyId);
+
+  return NextResponse.json({ issue_key: jiraData.key });
 }

@@ -22,9 +22,14 @@ export default async function Dashboard() {
     <div className="mx-auto max-w-4xl p-8">
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Projects</h1>
-        <Link href="/projects/new">
-          <Button>New Project</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/settings">
+            <Button variant="outline">Settings</Button>
+          </Link>
+          <Link href="/projects/new">
+            <Button>New Project</Button>
+          </Link>
+        </div>
       </div>
 
       {!projects?.length ? (

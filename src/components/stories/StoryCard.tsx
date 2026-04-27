@@ -1,7 +1,22 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { GeneratedStory } from "@/lib/types";
+import type { GeneratedStory, AcceptanceCriterion } from "@/lib/types";
+import { ReviewActions } from "./ReviewActions";
+import { JiraPushButton } from "./JiraPushButton";
+
+function toArray<T>(value: T[] | string | undefined | null): T[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 function ConfidenceBar({ confidence }: { confidence: number }) {
   const color =
@@ -33,6 +48,10 @@ export function StoryCard({
   story: GeneratedStory;
   projectId: string;
 }) {
+  const acceptanceCriteria = toArray<AcceptanceCriterion>(story.acceptance_criteria);
+  const labels = toArray<string>(story.labels);
+  const flaggedGaps = toArray<string>(story.flagged_gaps);
+
   const reviewColors: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-800",
     approved: "bg-green-100 text-green-800",
@@ -60,13 +79,13 @@ export function StoryCard({
           <strong>{story.benefit}</strong>.
         </p>
 
-        {story.acceptance_criteria.length > 0 && (
+        {acceptanceCriteria.length > 0 && (
           <>
             <Separator />
             <div>
               <p className="mb-1 font-medium">Acceptance Criteria:</p>
               <ul className="space-y-1">
-                {story.acceptance_criteria.map((ac, i) => (
+                {acceptanceCriteria.map((ac, i) => (
                   <li key={i} className="text-muted-foreground">
                     <span className="font-medium">Given</span> {ac.given},{" "}
                     <span className="font-medium">When</span> {ac.when},{" "}
@@ -85,18 +104,18 @@ export function StoryCard({
           {story.story_points && (
             <Badge variant="outline">{story.story_points} pts</Badge>
           )}
-          {story.labels.map((label) => (
+          {labels.map((label) => (
             <Badge key={label} variant="secondary">
               {label}
             </Badge>
           ))}
         </div>
 
-        {story.flagged_gaps.length > 0 && (
+        {flaggedGaps.length > 0 && (
           <div className="rounded-md bg-yellow-50 p-2 text-xs text-yellow-800">
             <p className="font-medium">Missing information:</p>
             <ul className="ml-4 list-disc">
-              {story.flagged_gaps.map((gap, i) => (
+              {flaggedGaps.map((gap, i) => (
                 <li key={i}>{gap}</li>
               ))}
             </ul>
@@ -110,11 +129,19 @@ export function StoryCard({
           </div>
         )}
 
-        {story.jira_issue_key && (
-          <Badge variant="outline" className="text-blue-600">
-            {story.jira_issue_key}
-          </Badge>
-        )}
+        <Separator />
+
+        <ReviewActions
+          storyId={story.id}
+          currentStatus={story.review_status}
+        />
+
+        <JiraPushButton
+          storyId={story.id}
+          reviewStatus={story.review_status}
+          syncStatus={story.jira_sync_status}
+          issueKey={story.jira_issue_key}
+        />
       </CardContent>
     </Card>
   );

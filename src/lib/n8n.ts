@@ -14,10 +14,16 @@ export async function triggerN8nWebhook(path: string, payload: unknown) {
   });
 
   if (!res.ok) {
-    throw new Error(`n8n webhook failed: ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    throw new Error(`n8n webhook failed: ${res.status} ${text}`);
   }
 
-  return res.json();
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text };
+  }
 }
 
 export function triggerGenerate(payload: {
@@ -27,7 +33,12 @@ export function triggerGenerate(payload: {
   run_id: string;
 }) {
   const path = process.env.N8N_GENERATE_WEBHOOK_PATH || "/webhook/generate-stories";
-  return triggerN8nWebhook(path, payload);
+  return triggerN8nWebhook(path, {
+    ...payload,
+    supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabase_key: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    requesty_api_key: process.env.REQUESTY_API_KEY,
+  });
 }
 
 export function triggerJiraSync(payload: {
