@@ -2,21 +2,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import type { GeneratedStory, AcceptanceCriterion } from "@/lib/types";
+import { toArray } from "@/lib/parse";
 import { ReviewActions } from "./ReviewActions";
 import { JiraPushButton } from "./JiraPushButton";
-
-function toArray<T>(value: T[] | string | undefined | null): T[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
 
 function ConfidenceBar({ confidence }: { confidence: number }) {
   const color =
