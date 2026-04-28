@@ -58,14 +58,86 @@ Paste raw requirements text and the tool will:
 
 **Review:** A reviewer can approve, reject, or request changes on each story before pushing it to Jira.
 
+## Architecture — The Three Layers
+
+This application is built on three main layers that work together but are fully decoupled:
+
+### 1. Next.js (Frontend + API)
+
+The user-facing layer. Handles authentication, UI rendering, and API routes.
+
+- **What it does:** Renders pages (dashboard, project detail, side-by-side view), handles user actions (create project, submit requirements, approve stories, push to Jira), and exposes API routes that bridge the frontend to the other layers.
+- **Key API routes:**
+  - `POST /api/generate` — Receives a requirement input, creates a generation run in Supabase, and fires a webhook to n8n to start processing.
+  - `POST /api/stories/[id]/review` — Writes review decisions (approve/reject) directly to Supabase.
+  - `POST /api/stories/[id]/jira` — Builds the Jira payload, supports dry-run preview, and pushes to the Jira REST API.
+  - `POST /api/webhooks/n8n` — Callback endpoint where n8n delivers generated stories after LLM processing.
+  - `POST /api/upload` — Receives file uploads (PDF, DOCX, TXT), extracts text, and returns it to the form.
+- **Does NOT** call the LLM directly. All AI processing goes through n8n.
+
+### 2. n8n (Workflow Orchestration)
+
+The processing layer. Runs as a Docker container and handles the AI generation pipeline.
+
+- **What it does:** Receives a webhook from Next.js with the raw requirement text, calls the LLM (Requesty) with a structured prompt, parses the JSON response, writes the generated stories to Supabase, and updates processing status.
+- **Workflow: `generate-stories`**
+  1. Webhook trigger — receives `input_id`, `project_id`, `raw_text`, `run_id`, plus Supabase and Requesty credentials.
+  2. Updates `requirement_inputs.status` to `processing` via Supabase REST API.
+  3. Sends the text to the Requesty LLM with a prompt that enforces JSON output, traceability, confidence scoring, and gap flagging.
+  4. Parses the LLM response (handles markdown-wrapped JSON).
+  5. Inserts generated stories into `generated_stories` table.
+  6. Updates status to `completed` or `error`.
+- **Why n8n instead of calling the LLM directly from Next.js?** Decoupling. The LLM call can take 30+ seconds. n8n processes it asynchronously, writes results to Supabase, and the UI picks them up. This also makes it easy to swap LLM providers, add retry logic, or chain additional processing steps without touching the frontend code.
+
+### 3. Supabase (Database + Auth + Storage)
+
+The persistence and security layer. Hosts the Postgres database, handles authentication, and stores uploaded files.
+
+- **What it does:**
+  - **Auth:** Email/password authentication with session cookies. The Next.js proxy refreshes sessions on every request and redirects unauthenticated users.
+  - **Database:** Five tables (`profiles`, `projects`, `requirement_inputs`, `generated_stories`, `generation_runs`) with Row Level Security — each user can only access their own data.
+  - **Storage:** Stores uploaded requirement files (PDF, DOCX) in a private `requirement-files` bucket.
+  - **Realtime:** `requirement_inputs` and `generated_stories` tables are added to the Supabase Realtime publication, enabling live UI updates.
+- **Acts as the shared state** between all three layers. Next.js reads/writes via the Supabase client. n8n reads/writes via the Supabase REST API. Both interact with the same tables.
+
+### How They Communicate
+
+```
+┌─────────────┐     webhook POST     ┌─────────────┐     HTTP POST      ┌─────────────┐
+│             │ ──────────────────>   │             │ ───────────────>   │  Requesty   │
+│   Next.js   │                      │     n8n     │                    │    (LLM)    │
+│             │   callback POST      │             │   JSON response    │             │
+│  (port 3000)│ <──────────────────   │ (port 5678) │ <───────────────   │             │
+└──────┬──────┘                      └──────┬──────┘                    └─────────────┘
+       │                                    │
+       │  Supabase client                   │  Supabase REST API
+       │  (read/write)                      │  (read/write)
+       │                                    │
+       └──────────────┐  ┌─────────────────┘
+                      │  │
+               ┌──────v──v──────┐
+               │                │
+               │    Supabase    │
+               │  (Postgres +   │
+               │  Auth + Storage)│
+               │                │
+               └────────────────┘
+```
+
+- **Next.js → n8n:** HTTP webhook to trigger story generation.
+- **n8n → Supabase:** REST API calls to update status and insert stories.
+- **n8n → Requesty:** HTTP POST to the LLM for AI processing.
+- **Next.js → Supabase:** Client SDK for auth, CRUD operations, and real-time subscriptions.
+- **Next.js → Jira:** Direct REST API calls for ticket creation (does not go through n8n).
+
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 16 (App Router), shadcn/ui, Tailwind CSS |
-| Backend / Database | Supabase (Postgres, Auth, Row Level Security) |
-| Workflow Orchestration | n8n |
-| LLM | Requesty |
+| Frontend + API | Next.js 16 (App Router), shadcn/ui, Tailwind CSS |
+| Database + Auth | Supabase (Postgres, Auth, Row Level Security, Storage) |
+| Workflow Orchestration | n8n (Docker) |
+| LLM | Requesty (anthropic/claude-sonnet-4-20250514) |
 | Integration | Jira REST API v3 |
 | Package Manager | pnpm |
 
@@ -76,30 +148,39 @@ src/
 ├── app/
 │   ├── page.tsx                          # Dashboard — list of projects
 │   ├── login/page.tsx                    # Authentication
+│   ├── settings/page.tsx                 # Jira credentials configuration
 │   ├── projects/
 │   │   ├── new/page.tsx                  # Create a project
 │   │   └── [projectId]/
 │   │       ├── page.tsx                  # Project detail — list of requirement inputs
 │   │       └── inputs/
-│   │           ├── new/page.tsx          # Paste requirements, trigger generation
+│   │           ├── new/page.tsx          # Paste text or upload file, trigger generation
 │   │           └── [inputId]/page.tsx    # Side-by-side: input vs generated stories
 │   └── api/
 │       ├── generate/route.ts             # Triggers n8n story generation workflow
+│       ├── upload/route.ts               # File upload + text extraction (PDF, DOCX, TXT)
 │       ├── stories/[storyId]/
-│       │   ├── review/route.ts           # Review actions
-│       │   └── jira/route.ts             # Jira push with dry-run support
+│       │   ├── review/route.ts           # Review actions (approve/reject/request changes)
+│       │   └── jira/route.ts             # Jira push with dry-run preview
 │       └── webhooks/n8n/route.ts         # Receives results from n8n
 ├── components/
 │   ├── ui/                               # shadcn/ui components
-│   └── stories/StoryCard.tsx             # Story card with confidence, gaps, metadata
+│   └── stories/
+│       ├── StoryCard.tsx                 # Story display with confidence, gaps, metadata
+│       ├── ReviewActions.tsx             # Approve/reject/request changes buttons
+│       └── JiraPushButton.tsx            # Dry-run preview + push to Jira
 ├── lib/
-│   ├── supabase/                         # Client, server, and middleware helpers
+│   ├── supabase/                         # Client, server, and proxy helpers
 │   ├── n8n.ts                            # Webhook trigger functions
 │   └── types.ts                          # Shared TypeScript interfaces
-└── middleware.ts                          # Auth guard
+└── proxy.ts                              # Auth guard (Next.js 16 proxy convention)
 
 supabase/migrations/001_initial_schema.sql
+n8n/generate-stories.json                 # Importable n8n workflow
 docker-compose.yml
+docs/
+├── SUPABASE_SETUP.md
+└── JIRA_SETUP.md
 ```
 
 ## Database
