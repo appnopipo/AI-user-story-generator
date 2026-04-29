@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { StoryCard } from "@/components/stories/StoryCard";
+import { BulkActions } from "@/components/stories/BulkActions";
 import type { GeneratedStory, RequirementInput } from "@/lib/types";
 
 const statusColor: Record<string, string> = {
@@ -25,10 +26,27 @@ export function RealtimeInputView({
 }) {
   const [input, setInput] = useState(initialInput);
   const [stories, setStories] = useState(initialStories);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const supabase = createClient();
 
+  const allSelected =
+    stories.length > 0 && selectedIds.length === stories.length;
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(stories.map((s) => s.id));
+    }
+  }
+
   useEffect(() => {
-    // Listen for input status changes
     const inputChannel = supabase
       .channel(`input-${input.id}`)
       .on(
@@ -45,7 +63,6 @@ export function RealtimeInputView({
       )
       .subscribe();
 
-    // Listen for new stories
     const storiesChannel = supabase
       .channel(`stories-${input.id}`)
       .on(
@@ -111,9 +128,27 @@ export function RealtimeInputView({
         </div>
 
         <div>
-          <h2 className="mb-3 text-lg font-semibold">
-            Generated Stories ({stories.length})
-          </h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">
+              Generated Stories ({stories.length})
+            </h2>
+            {stories.length > 1 && (
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="rounded"
+                />
+                Select all
+              </label>
+            )}
+          </div>
+
+          <BulkActions
+            selectedIds={selectedIds}
+            onClearSelection={() => setSelectedIds([])}
+          />
 
           {stories.length === 0 ? (
             <Card>
@@ -133,11 +168,19 @@ export function RealtimeInputView({
           ) : (
             <div className="space-y-4">
               {stories.map((story) => (
-                <StoryCard
-                  key={story.id}
-                  story={story}
-                  projectId={projectId}
-                />
+                <div key={story.id} className="flex gap-3">
+                  <div className="pt-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(story.id)}
+                      onChange={() => toggleSelect(story.id)}
+                      className="rounded"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <StoryCard story={story} projectId={projectId} />
+                  </div>
+                </div>
               ))}
             </div>
           )}
