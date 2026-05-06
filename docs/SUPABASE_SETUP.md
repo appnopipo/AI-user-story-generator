@@ -27,7 +27,7 @@ Step-by-step guide to configure Supabase for the AI User Story Generator.
    - **anon public** key — this is your `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - **service_role** key — this is your `SUPABASE_SERVICE_ROLE_KEY`
 
-> The `service_role` key bypasses Row Level Security. It is only used server-side in the n8n webhook callback. Never expose it to the browser.
+> The `service_role` key bypasses Row Level Security. It is only used server-side in the API routes. Never expose it to the browser.
 
 ## 4. Run the Database Migration
 
@@ -82,11 +82,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...your-service-role-key
 
-# n8n (keep defaults for local development)
-N8N_BASE_URL=http://localhost:5678
-N8N_GENERATE_WEBHOOK_PATH=/webhook/generate-stories
-N8N_JIRA_WEBHOOK_PATH=/webhook/jira-sync
-N8N_WEBHOOK_SECRET=pick-any-secret-string-here
+# Requesty LLM
+REQUESTY_API_KEY=your-requesty-api-key
 ```
 
 ## 8. Test the Connection
