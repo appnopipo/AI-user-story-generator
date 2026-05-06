@@ -71,16 +71,19 @@ export async function POST(request: Request) {
   ).toString("base64");
 
   // Fetch existing tickets from the Jira project (last 100)
-  const jql = encodeURIComponent(
-    `project = ${jira_project_key} ORDER BY created DESC`
-  );
-  const jiraUrl = `${profile.jira_base_url}/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,status,issuetype`;
+  const jiraUrl = `${profile.jira_base_url}/rest/api/3/search/jql`;
 
   const jiraRes = await fetch(jiraUrl, {
+    method: "POST",
     headers: {
       Authorization: `Basic ${authHeader}`,
       "Content-Type": "application/json",
     },
+    body: JSON.stringify({
+      jql: `project = ${jira_project_key} ORDER BY created DESC`,
+      maxResults: 100,
+      fields: ["summary", "status", "issuetype"],
+    }),
   });
 
   if (!jiraRes.ok) {
