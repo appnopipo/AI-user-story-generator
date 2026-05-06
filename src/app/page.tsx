@@ -15,31 +15,55 @@ import type { GeneratedStory } from "@/lib/types";
 
 // --- Logo ---
 
-function Logo({ size = 28 }: { size?: number }) {
+function Logo({ size = 24 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 32 32"
-      fill="none"
+      viewBox="0 0 1080 1080"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect width="32" height="32" rx="8" fill="currentColor" fillOpacity="0.1" />
       <path
-        d="M8 12h16M8 16h12M8 20h8"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
+        d="M349.34,202.71,455.1,308.47a27.66,27.66,0,0,0,19.55,8.09H735.79a27.65,27.65,0,0,1,27.65,27.65V605.35a27.66,27.66,0,0,0,8.09,19.55L877.29,730.66a27.64,27.64,0,0,0,39.1,0L1022.15,624.9a27.64,27.64,0,0,0,8.1-19.55V77.4a27.65,27.65,0,0,0-27.65-27.65H474.65a27.64,27.64,0,0,0-19.55,8.1L349.34,163.61A27.64,27.64,0,0,0,349.34,202.71Z"
+        fill="#00e9c2"
       />
-      <circle cx="24" cy="20" r="3" fill="currentColor" fillOpacity="0.6" />
       <path
-        d="M23 20l1 1 2-2.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        d="M730.66,877.29,624.9,771.53a27.66,27.66,0,0,0-19.55-8.09H344.21a27.65,27.65,0,0,1-27.65-27.65V474.65a27.66,27.66,0,0,0-8.09-19.55L202.71,349.34a27.64,27.64,0,0,0-39.1,0L57.85,455.1a27.64,27.64,0,0,0-8.1,19.55v528a27.65,27.65,0,0,0,27.65,27.65h528a27.64,27.64,0,0,0,19.55-8.1L730.66,916.39A27.64,27.64,0,0,0,730.66,877.29Z"
+        fill="#00e9c2"
       />
     </svg>
+  );
+}
+
+// --- Footer ---
+
+function Footer() {
+  return (
+    <footer className="border-t border-border/50 px-6 py-4">
+      <div className="mx-auto flex max-w-4xl items-center justify-between">
+        <div className="flex items-center gap-4">
+          <img
+            src="/appnovation-wordmark.png"
+            alt="Appnovation"
+            className="h-5 opacity-60"
+          />
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>Built by Pipo Bizelli</span>
+          <span className="text-border">|</span>
+          <span>Powered by Claude Code</span>
+          <span className="text-border">|</span>
+          <a
+            href="https://github.com/appnopipo/AI-user-story-generator"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            GitHub
+          </a>
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -260,9 +284,11 @@ function OnboardingChat({
       <header className="flex items-center justify-between border-b border-border/50 px-6 py-4">
         <div className="flex items-center gap-3">
           <Logo />
-          <h1 className="text-lg font-semibold">Story Generator</h1>
+          <h1 className="text-lg font-semibold">Ticket Generator</h1>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3">
+          <img src="/appnovation-bracket.svg" alt="" className="h-6 opacity-70" />
+          <div className="flex items-center gap-1">
           {onBack && (
             <button
               onClick={onBack}
@@ -309,6 +335,7 @@ function OnboardingChat({
             <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
         </button>
+          </div>
         </div>
       </header>
 
@@ -368,6 +395,7 @@ function OnboardingChat({
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
@@ -725,40 +753,43 @@ export default function Dashboard() {
       <header className="flex items-center justify-between border-b border-border/50 px-6 py-4">
         <div className="flex items-center gap-3">
           <Logo />
-          <h1 className="text-lg font-semibold">Story Generator</h1>
+          <h1 className="text-lg font-semibold">Ticket Generator</h1>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowOnboarding(true)}
-            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Jira settings"
-          >
-            <GearIcon />
-          </button>
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.push("/login");
-            }}
-            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Sign out"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        <div className="flex items-center gap-3">
+          <img src="/appnovation-bracket.svg" alt="" className="h-6 opacity-70" />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="Jira settings"
             >
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
+              <GearIcon />
+            </button>
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                router.push("/login");
+              }}
+              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="Sign out"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -984,6 +1015,7 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+      <Footer />
     </div>
   );
 }
