@@ -40,7 +40,7 @@ function Logo({ size = 24 }: { size?: number }) {
 function Footer() {
   return (
     <footer className="border-t border-border/50 px-6 py-4">
-      <div className="mx-auto flex max-w-4xl items-center justify-between">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <img
             src="/appnovation-wordmark.png"
@@ -286,9 +286,7 @@ function OnboardingChat({
           <Logo />
           <h1 className="text-lg font-semibold">Ticket Generator</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <img src="/appnovation-bracket.svg" alt="" className="h-6 opacity-70" />
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
           {onBack && (
             <button
               onClick={onBack}
@@ -335,7 +333,6 @@ function OnboardingChat({
             <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
         </button>
-          </div>
         </div>
       </header>
 
@@ -755,9 +752,7 @@ export default function Dashboard() {
           <Logo />
           <h1 className="text-lg font-semibold">Ticket Generator</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <img src="/appnovation-bracket.svg" alt="" className="h-6 opacity-70" />
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
             <button
               onClick={() => setShowOnboarding(true)}
               className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -789,7 +784,6 @@ export default function Dashboard() {
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
             </button>
-          </div>
         </div>
       </header>
 
