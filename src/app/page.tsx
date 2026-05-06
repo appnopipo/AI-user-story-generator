@@ -697,23 +697,27 @@ export default function Dashboard() {
     setCheckingDuplicates(false);
     setGenerationStep("");
 
-    if (checkRes.ok) {
-      const checkData = await checkRes.json();
-      if (checkData.duplicates?.length > 0) {
-        setDuplicates(checkData.duplicates);
-        // Deselect duplicates automatically
-        const dupIds = new Set(
-          checkData.duplicates.map(
-            (d: { new_story_id: string }) => d.new_story_id,
-          ),
-        );
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          dupIds.forEach((id) => next.delete(id as string));
-          return next;
-        });
-        return; // Stop here — user can review and click push again
-      }
+    if (!checkRes.ok) {
+      const errData = await checkRes.json();
+      setError(errData.error || "Duplicate check failed");
+      return;
+    }
+
+    const checkData = await checkRes.json();
+    if (checkData.duplicates?.length > 0) {
+      setDuplicates(checkData.duplicates);
+      // Deselect duplicates automatically
+      const dupIds = new Set(
+        checkData.duplicates.map(
+          (d: { new_story_id: string }) => d.new_story_id,
+        ),
+      );
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        dupIds.forEach((id) => next.delete(id as string));
+        return next;
+      });
+      return; // Stop here — user can review and click push again
     }
 
     // No duplicates — push directly

@@ -72,21 +72,24 @@ export async function POST(request: Request) {
 
   // Fetch existing tickets from the Jira project (last 100)
   const jql = encodeURIComponent(
-    `project = "${jira_project_key}" ORDER BY created DESC`
+    `project = ${jira_project_key} ORDER BY created DESC`
   );
-  const jiraRes = await fetch(
-    `${profile.jira_base_url}/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,status,issuetype`,
-    {
-      headers: {
-        Authorization: `Basic ${authHeader}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+  const jiraUrl = `${profile.jira_base_url}/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,status,issuetype`;
+
+  const jiraRes = await fetch(jiraUrl, {
+    headers: {
+      Authorization: `Basic ${authHeader}`,
+      "Content-Type": "application/json",
+    },
+  });
 
   if (!jiraRes.ok) {
-    // If we can't fetch tickets, skip duplicate check and allow push
-    return NextResponse.json({ duplicates: [], skipped: true });
+    const errText = await jiraRes.text();
+    console.error("Jira search failed:", jiraRes.status, errText);
+    return NextResponse.json(
+      { error: `Failed to fetch existing tickets: ${errText}` },
+      { status: 502 }
+    );
   }
 
   const jiraData = await jiraRes.json();
@@ -113,7 +116,13 @@ export async function POST(request: Request) {
 
   // Prepare stories summary for LLM
   const newStoriesSummary = stories.map(
-    (s: { id: string; title: string; persona: string; action: string; benefit: string }) => ({
+    (s: {
+      id: string;
+      title: string;
+      persona: string;
+      action: string;
+      benefit: string;
+    }) => ({
       id: s.id,
       title: s.title,
       description: `As a ${s.persona}, I want ${s.action}, so that ${s.benefit}`,
@@ -141,8 +150,11 @@ export async function POST(request: Request) {
   });
 
   if (!llmRes.ok) {
-    // If LLM fails, skip duplicate check and allow push
-    return NextResponse.json({ duplicates: [], skipped: true });
+    console.error("LLM check-duplicates failed:", llmRes.status);
+    return NextResponse.json(
+      { error: "Duplicate check failed — LLM unavailable" },
+      { status: 502 }
+    );
   }
 
   const llmData = await llmRes.json();
@@ -159,6 +171,10 @@ export async function POST(request: Request) {
       existing_count: existingTickets.length,
     });
   } catch {
-    return NextResponse.json({ duplicates: [], skipped: true });
+    console.error("Failed to parse LLM duplicate check response:", content);
+    return NextResponse.json(
+      { error: "Duplicate check failed — could not parse response" },
+      { status: 502 }
+    );
   }
 }
