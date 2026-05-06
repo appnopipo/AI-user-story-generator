@@ -52,7 +52,17 @@ function Footer() {
           />
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span>Built by Pipo Bizelli</span>
+          <span>
+            Built by{" "}
+            <a
+              href="https://github.com/appnopipo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4 hover:text-foreground"
+            >
+              Pipo Bizelli
+            </a>
+          </span>
           <span className="text-border">|</span>
           <span>Powered by Claude Code</span>
           <span className="text-border">|</span>
@@ -330,12 +340,12 @@ function OnboardingChat({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-          >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-        </button>
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -492,7 +502,7 @@ export default function Dashboard() {
             return [...prev, newStory];
           });
           setSelectedIds((prev) => new Set([...prev, newStory.id]));
-        }
+        },
       )
       .subscribe();
     return () => {
@@ -520,7 +530,7 @@ export default function Dashboard() {
               setError("Generation failed. Please try again.");
             }
           }
-        }
+        },
       )
       .subscribe();
     return () => {
@@ -576,7 +586,7 @@ export default function Dashboard() {
       projectId = existingProjects[0].id;
     } else {
       const selectedProject = jiraProjects.find(
-        (p) => p.key === selectedProjectKey
+        (p) => p.key === selectedProjectKey,
       );
       const { data: newProject, error: createError } = await supabase
         .from("projects")
@@ -656,8 +666,12 @@ export default function Dashboard() {
           }),
         });
         const data = await res.json();
-        return { storyId: story.id, issueKey: data.issue_key, error: data.error };
-      })
+        return {
+          storyId: story.id,
+          issueKey: data.issue_key,
+          error: data.error,
+        };
+      }),
     );
 
     setPushing(false);
@@ -722,9 +736,14 @@ export default function Dashboard() {
     setLoadingProjects(false);
   }
 
-  const selectedProject = jiraProjects.find((p) => p.key === selectedProjectKey);
-  const issueTypes = selectedProject?.issueTypes || [{ id: "story", name: "Story" }];
-  const allPushed = pushResults.length > 0 && pushResults.every((r) => r.issueKey);
+  const selectedProject = jiraProjects.find(
+    (p) => p.key === selectedProjectKey,
+  );
+  const issueTypes = selectedProject?.issueTypes || [
+    { id: "story", name: "Story" },
+  ];
+  const allPushed =
+    pushResults.length > 0 && pushResults.every((r) => r.issueKey);
   const hasResults = stories.length > 0 || generating;
 
   // Loading
@@ -756,54 +775,62 @@ export default function Dashboard() {
           <h1 className="text-lg font-semibold">Ticket Generator</h1>
         </div>
         <div className="flex items-center gap-1">
-            <button
-              onClick={() => setShowOnboarding(true)}
-              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Jira settings"
+          <button
+            onClick={() => setShowOnboarding(true)}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Jira settings"
+          >
+            <GearIcon />
+          </button>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              router.push("/login");
+            }}
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Sign out"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <GearIcon />
-            </button>
-            <button
-              onClick={async () => {
-                await supabase.auth.signOut();
-                router.push("/login");
-              }}
-              className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Sign out"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
         </div>
       </header>
 
       {/* Main content */}
-      <main className={`flex flex-1 flex-col ${hasResults ? "pt-8" : "items-center justify-center"}`}>
-        <div className={`w-full px-6 ${hasResults ? "mx-auto max-w-4xl" : "max-w-3xl"}`}>
+      <main
+        className={`flex flex-1 flex-col ${hasResults ? "pt-8" : "items-center justify-center"}`}
+      >
+        <div
+          className={`w-full px-6 ${hasResults ? "mx-auto max-w-4xl" : "max-w-3xl"}`}
+        >
           {/* Welcome text or success message when no results */}
           {!hasResults && (
             <div className="mb-8">
               {pushedTickets.length > 0 ? (
                 <div className="mx-auto max-w-2xl rounded-2xl bg-muted/50 px-6 py-5">
                   <p className="mb-3 text-sm font-medium">
-                    Done! Created {pushedTickets.length} ticket{pushedTickets.length > 1 ? "s" : ""}:
+                    Done! Created {pushedTickets.length} ticket
+                    {pushedTickets.length > 1 ? "s" : ""}:
                   </p>
                   <ul className="space-y-2">
                     {pushedTickets.map((t) => (
-                      <li key={t.issueKey} className="flex items-center gap-2 text-sm">
+                      <li
+                        key={t.issueKey}
+                        className="flex items-center gap-2 text-sm"
+                      >
                         <span className="text-green-500">&#10003;</span>
                         <a
                           href={`${jiraBaseUrl}/browse/${t.issueKey}`}
@@ -824,7 +851,8 @@ export default function Dashboard() {
                     What do you want to build?
                   </h2>
                   <p className="text-muted-foreground">
-                    Paste requirements or upload a file to generate Jira-ready user stories.
+                    Paste requirements or upload a file to generate Jira-ready
+                    user stories.
                   </p>
                 </div>
               )}
@@ -889,13 +917,17 @@ export default function Dashboard() {
                 </span>
               )}
               {fileName && !uploading && (
-                <span className="text-xs text-muted-foreground">{fileName}</span>
+                <span className="text-xs text-muted-foreground">
+                  {fileName}
+                </span>
               )}
 
               {/* Project selector */}
               <div className="flex-1" />
               {loadingProjects ? (
-                <span className="text-xs text-muted-foreground">Loading...</span>
+                <span className="text-xs text-muted-foreground">
+                  Loading...
+                </span>
               ) : (
                 <select
                   value={selectedProjectKey}
@@ -915,14 +947,36 @@ export default function Dashboard() {
               <Button
                 size="sm"
                 onClick={handleGenerate}
-                disabled={!text.trim() || !selectedProjectKey || generating || loadingProjects}
+                disabled={
+                  !text.trim() ||
+                  !selectedProjectKey ||
+                  generating ||
+                  loadingProjects
+                }
                 className="rounded-xl"
               >
                 {generating ? (
                   <span className="flex items-center gap-2">
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                    <svg
+                      className="h-4 w-4 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        className="opacity-25"
+                      />
+                      <path
+                        d="M4 12a8 8 0 018-8"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        className="opacity-75"
+                      />
                     </svg>
                     Generating
                   </span>
@@ -967,7 +1021,9 @@ export default function Dashboard() {
                       <Button
                         size="sm"
                         onClick={handlePushToJira}
-                        disabled={selectedIds.size === 0 || pushing || allPushed}
+                        disabled={
+                          selectedIds.size === 0 || pushing || allPushed
+                        }
                       >
                         {pushing
                           ? "Sending..."
@@ -986,9 +1042,13 @@ export default function Dashboard() {
                     {pushResults.map((r) => (
                       <div key={r.storyId} className="flex items-center gap-2">
                         {r.issueKey ? (
-                          <span className="text-green-500">Created: {r.issueKey}</span>
+                          <span className="text-green-500">
+                            Created: {r.issueKey}
+                          </span>
                         ) : (
-                          <span className="text-destructive">Error: {r.error}</span>
+                          <span className="text-destructive">
+                            Error: {r.error}
+                          </span>
                         )}
                       </div>
                     ))}

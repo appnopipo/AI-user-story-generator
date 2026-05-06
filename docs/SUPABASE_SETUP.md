@@ -1,6 +1,6 @@
 # Supabase Setup Guide
 
-Step-by-step guide to configure Supabase for the AI User Story Generator.
+Step-by-step guide to configure Supabase for the Ticket Generator.
 
 ## 1. Create a Supabase Account
 
@@ -12,7 +12,7 @@ Step-by-step guide to configure Supabase for the AI User Story Generator.
 
 1. Click **New Project**
 2. Fill in:
-   - **Project name:** `ai-user-story-generator`
+   - **Project name:** `ticket-generator`
    - **Database password:** Choose a strong password (save it somewhere safe)
    - **Region:** Pick the closest to you
 3. Click **Create new project**
@@ -29,14 +29,14 @@ Step-by-step guide to configure Supabase for the AI User Story Generator.
 
 > The `service_role` key bypasses Row Level Security. It is only used server-side in the API routes. Never expose it to the browser.
 
-## 4. Run the Database Migration
+## 4. Run the Database Migrations
 
 1. In the sidebar, click **SQL Editor**
 2. Click **New query**
-3. Open the file `supabase/migrations/001_initial_schema.sql` from this project
+3. Open `supabase/migrations/001_initial_schema.sql` from this project
 4. Copy the entire contents and paste it into the SQL Editor
 5. Click **Run** (or press Cmd+Enter)
-6. You should see "Success. No rows returned" — this means all tables, policies, and triggers were created
+6. Repeat for `supabase/migrations/002_cleanup_unused_fields.sql`
 
 ### Verify the tables were created
 
@@ -55,16 +55,24 @@ The migration already adds `requirement_inputs` and `generated_stories` to the R
 1. Go to **Database** > **Replication** in the sidebar
 2. Under `supabase_realtime`, confirm that `requirement_inputs` and `generated_stories` are listed
 
-## 6. Configure Auth (Optional Tweaks)
+## 6. Configure Auth
 
-By default, Supabase Auth works with email + password, which is what this project uses. You may want to:
+### Email/Password
+
+By default, Supabase Auth works with email + password. You may want to:
 
 1. Go to **Authentication** > **Providers**
 2. Under **Email**, make sure it is enabled
-3. (Optional) Disable **Confirm email** for faster testing during development:
-   - Go to **Authentication** > **Settings**
-   - Toggle off **Enable email confirmations**
-   - This lets you sign up and log in immediately without checking your inbox
+3. (Optional) Disable **Confirm email** for faster testing during development
+
+### Google OAuth
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) > APIs & Services > Credentials
+2. Create an **OAuth Client ID** (Web application)
+3. Add authorized redirect URI: `https://<your-project-id>.supabase.co/auth/v1/callback`
+4. Copy the **Client ID** and **Client Secret**
+5. In Supabase Dashboard > **Authentication** > **Providers**, enable **Google**
+6. Paste the Client ID and Client Secret, then save
 
 ## 7. Update Your .env.local
 
@@ -84,6 +92,9 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...your-service-role-key
 
 # Requesty LLM
 REQUESTY_API_KEY=your-requesty-api-key
+
+# Jira (optional, default shown)
+JIRA_STORY_POINTS_FIELD_ID=customfield_10016
 ```
 
 ## 8. Test the Connection
@@ -95,8 +106,8 @@ pnpm dev
 ```
 
 1. Open `http://localhost:3000` — you should be redirected to `/login`
-2. Sign up with an email and password
-3. After sign up, you should land on the dashboard
+2. Sign in with Google or sign up with email and password
+3. The LLM-powered onboarding will guide you through Jira setup
 4. Check the **Table Editor** in Supabase — a new row should appear in the `profiles` table
 
 If the profile row appears, your database, auth, and trigger are all working correctly.
@@ -113,5 +124,6 @@ If the profile row appears, your database, auth, and trigger are all working cor
 ### "permission denied for table profiles"
 - RLS policies may not have been created. Re-run the migration SQL and check for errors in the SQL Editor output.
 
-### Email confirmation required
-- If you didn't disable email confirmations, check your inbox (or spam) for the confirmation link before logging in.
+### Google login redirects but doesn't complete
+- Check that the redirect URI in Google Cloud Console matches exactly: `https://<project-id>.supabase.co/auth/v1/callback`
+- Verify the Client ID and Secret are correctly pasted in Supabase Auth Providers

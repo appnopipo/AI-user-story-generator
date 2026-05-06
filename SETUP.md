@@ -1,76 +1,13 @@
-# AI User Story Generator
-
-An internal tool that converts unstructured requirements into structured, Jira-ready user stories using AI.
+# Ticket Generator — Setup Guide
 
 ## Tech Stack
 
-- **Frontend:** Next.js 16 (App Router) + shadcn/ui + Tailwind CSS
-- **Backend/DB:** Supabase (Postgres, Auth, Storage)
-- **LLM:** Requesty
+- **Frontend:** Next.js 16 (App Router) + shadcn/ui + Tailwind CSS + Inter font
+- **Backend/DB:** Supabase (Postgres, Auth, Storage, Realtime)
+- **LLM:** Claude Sonnet via Requesty API
 - **Integration:** Jira REST API v3
+- **Auth:** Email/password + Google OAuth
 - **Package Manager:** pnpm
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── layout.tsx                        # Root layout
-│   ├── page.tsx                          # Dashboard (project list)
-│   ├── login/page.tsx                    # Auth (sign in / sign up)
-│   ├── auth/callback/route.ts            # OAuth callback
-│   ├── projects/
-│   │   ├── new/page.tsx                  # Create project
-│   │   └── [projectId]/
-│   │       ├── page.tsx                  # Project detail (inputs list)
-│   │       └── inputs/
-│   │           ├── new/page.tsx          # Paste requirements + trigger generation
-│   │           └── [inputId]/page.tsx    # Side-by-side: input vs generated stories
-│   └── api/
-│       ├── generate/route.ts             # Calls LLM and writes stories to Supabase
-│       └── stories/[storyId]/
-│           ├── review/route.ts           # Approve / reject / request changes
-│           └── jira/route.ts             # Push to Jira (with dry-run support)
-├── components/
-│   ├── ui/                               # shadcn/ui primitives
-│   └── stories/StoryCard.tsx             # Story display with confidence, gaps, metadata
-├── lib/
-│   ├── supabase/
-│   │   ├── client.ts                     # Browser client
-│   │   ├── server.ts                     # Server-side client
-│   │   └── middleware.ts                 # Session refresh + auth guard
-│   └── types.ts                          # Shared TypeScript types
-└── middleware.ts                          # Redirects unauthenticated users to /login
-
-supabase/migrations/001_initial_schema.sql  # Full database schema
-.env.local.example                          # Required environment variables
-```
-
-## Database Schema
-
-Five tables in Supabase (Postgres):
-
-| Table | Purpose |
-|---|---|
-| `profiles` | Extends `auth.users` with display name and Jira credentials |
-| `projects` | User projects with optional Jira project key |
-| `requirement_inputs` | Raw requirement text with processing status |
-| `generated_stories` | AI-generated user stories with acceptance criteria, metadata, confidence, review status, and Jira sync state |
-| `generation_runs` | Tracks each LLM invocation (tokens, model, errors) |
-
-Row Level Security (RLS) is enabled on all tables. Each user can only access their own data.
-
-## Flow
-
-```
-User pastes text → POST /api/generate
-                        ↓
-               Call Requesty (LLM)
-                        ↓
-               Parse JSON → Write stories to Supabase
-                        ↓
-               UI updates via Supabase Realtime
-```
 
 ## Getting Started
 
@@ -81,8 +18,6 @@ pnpm install
 ```
 
 ### 2. Configure environment
-
-Copy the example env file and fill in your credentials:
 
 ```bash
 cp .env.local.example .env.local
@@ -96,16 +31,23 @@ Required variables:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side only) |
 | `REQUESTY_API_KEY` | API key for Requesty LLM |
+| `JIRA_STORY_POINTS_FIELD_ID` | Custom Jira field ID (default: `customfield_10016`) |
 
-### 3. Run the database migration
+### 3. Run the database migrations
 
-Go to your Supabase project dashboard → SQL Editor, and run the contents of:
+Go to your Supabase project dashboard > SQL Editor, and run:
 
-```
-supabase/migrations/001_initial_schema.sql
-```
+1. `supabase/migrations/001_initial_schema.sql` — Creates tables, RLS policies, triggers
+2. `supabase/migrations/002_cleanup_unused_fields.sql` — Removes deprecated columns
 
-### 4. Start the dev server
+### 4. Configure Google OAuth (optional)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) > APIs & Services > Credentials
+2. Create OAuth Client ID (Web application)
+3. Add redirect URI: `https://<your-supabase-project>.supabase.co/auth/v1/callback`
+4. In Supabase Dashboard > Authentication > Providers, enable Google and paste Client ID + Secret
+
+### 5. Start the dev server
 
 ```bash
 pnpm dev
@@ -113,20 +55,33 @@ pnpm dev
 
 The app will be available at `http://localhost:3000`.
 
+## User Flow
+
+1. **Login** — Email/password or Google OAuth
+2. **Jira Setup** — LLM-powered conversational onboarding asks for Jira URL, email, and API token
+3. **Generate** — Paste requirements or upload a file, select Jira project, click Generate
+4. **Review & Edit** — Inline edit stories, change issue types, add notes
+5. **Push** — Batch push selected stories to Jira, get clickable ticket links
+
 ## API Endpoints
 
 | Method | Route | Description |
 |---|---|---|
-| `POST` | `/api/generate` | Triggers story generation for a requirement input |
-| `POST` | `/api/stories/[storyId]/review` | Submit a review (approve/reject/changes_requested) |
-| `POST` | `/api/stories/[storyId]/jira` | Push story to Jira (supports `dry_run: true`) |
+| `POST` | `/api/generate` | Generate stories from requirement text |
+| `POST` | `/api/upload` | Upload file and extract text |
+| `POST` | `/api/chat/setup` | LLM-powered Jira setup conversation |
+| `GET` | `/api/jira/projects` | Fetch Jira projects and issue types |
+| `POST` | `/api/stories/[id]/jira` | Push story to Jira with edits and issue type |
 
 ## Key Features
 
-- **Structured output:** Stories follow "As a... I want... So that..." format
-- **Acceptance criteria:** Given/When/Then format
-- **Confidence indicators:** Color-coded scores (green > 80%, yellow > 60%, red below)
-- **Flagged gaps:** Missing information surfaced to the reviewer
-- **Traceability:** Each story links back to its source excerpt in the original input
-- **Review workflow:** Approve, reject, or request changes on each story
-- **Jira integration:** Dry-run preview before pushing, sync status tracking
+- **Chat-style interface** — Single-page app inspired by AI assistants
+- **LLM-powered onboarding** — Understands natural language for Jira setup
+- **Inline editing** — Edit all story fields before pushing to Jira
+- **Issue type selection** — Story, Bug, Task, Sub-task, etc. per ticket
+- **Notes field** — Add Figma links, context, or any extra info
+- **Batch Jira push** — Select stories and push them all at once
+- **Real-time updates** — Stories appear as they're generated via Supabase Realtime
+- **Confidence scoring** — Color-coded scores indicate how clearly requirements were stated
+- **Gap flagging** — Missing information is surfaced, not guessed
+- **Dark theme** — Default dark mode with Inter font
