@@ -41,8 +41,8 @@ function Logo({ size = 24 }: { size?: number }) {
 function Footer() {
   return (
     <footer className="border-t border-border/50 px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex justify-end">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Image
             src="/appnovation-wordmark.png"
             alt="Appnovation"
@@ -50,8 +50,7 @@ function Footer() {
             height={20}
             className="h-5 w-auto opacity-60"
           />
-        </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="text-border">|</span>
           <span>
             Built by{" "}
             <a
@@ -128,6 +127,7 @@ function storyToEditable(story: GeneratedStory): EditableStoryData {
     labels: toArray(story.labels),
     issue_type: "Story",
     notes: "",
+    attachments: [],
     source_excerpt: story.source_excerpt,
     confidence: story.confidence,
     flagged_gaps: toArray(story.flagged_gaps),
@@ -502,7 +502,9 @@ export default function Dashboard() {
           setStories((prev) => {
             if (prev.some((s) => s.id === newStory.id)) return prev;
             const updated = [...prev, newStory];
-            setGenerationStep(`Generating stories... (${updated.length} created)`);
+            setGenerationStep(
+              `Generating stories... (${updated.length} created)`,
+            );
             return updated;
           });
           setSelectedIds((prev) => new Set([...prev, newStory.id]));
@@ -663,7 +665,9 @@ export default function Dashboard() {
     if (selectedStories.length === 0) return;
     setPushing(true);
     setPushResults([]);
-    setGenerationStep(`Sending ${selectedStories.length} ticket${selectedStories.length > 1 ? "s" : ""} to Jira...`);
+    setGenerationStep(
+      `Sending ${selectedStories.length} ticket${selectedStories.length > 1 ? "s" : ""} to Jira...`,
+    );
 
     let completed = 0;
     const results = await Promise.all(
@@ -688,6 +692,23 @@ export default function Dashboard() {
           }),
         });
         const data = await res.json();
+
+        // Upload attachments if ticket was created and has files
+        if (data.issue_key && story.attachments.length > 0) {
+          setGenerationStep(
+            `Uploading attachments for ${data.issue_key}...`,
+          );
+          const formData = new FormData();
+          formData.append("issueKey", data.issue_key);
+          story.attachments.forEach((file) =>
+            formData.append("files", file, file.name),
+          );
+          await fetch("/api/jira/attachments", {
+            method: "POST",
+            body: formData,
+          });
+        }
+
         completed++;
         setGenerationStep(
           `Pushing to Jira... (${completed}/${selectedStories.length})`,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +22,7 @@ export interface EditableStoryData {
   labels: string[];
   issue_type: string;
   notes: string;
+  attachments: File[];
   source_excerpt: string | null;
   confidence: number;
   flagged_gaps: string[];
@@ -67,9 +68,21 @@ export function EditableStoryCard({
 }: EditableStoryCardProps) {
   const [expanded, setExpanded] = useState(false);
   const flaggedGaps = toArray<string>(story.flagged_gaps);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function update(patch: Partial<EditableStoryData>) {
     onChange({ ...story, ...patch });
+  }
+
+  function handleFileAdd(files: FileList | null) {
+    if (!files) return;
+    const newFiles = [...story.attachments, ...Array.from(files)];
+    update({ attachments: newFiles });
+  }
+
+  function removeAttachment(index: number) {
+    const updated = story.attachments.filter((_, i) => i !== index);
+    update({ attachments: updated });
   }
 
   function updateCriterion(
@@ -195,6 +208,52 @@ export function EditableStoryCard({
             className="min-h-[32px] text-xs"
             rows={1}
           />
+        </div>
+
+        {/* Attachments */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Attachments:</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileAdd(e.target.files)}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-md border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-foreground hover:text-foreground"
+            >
+              + Add images
+            </button>
+          </div>
+          {story.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {story.attachments.map((file, i) => (
+                <div
+                  key={`${file.name}-${i}`}
+                  className="group relative h-16 w-16 overflow-hidden rounded-md border border-border"
+                >
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt={file.name}
+                    className="h-full w-full object-cover"
+                  />
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    className="absolute inset-0 flex items-center justify-center bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Expandable section */}
