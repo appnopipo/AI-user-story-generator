@@ -1019,7 +1019,7 @@ export default function Dashboard() {
               placeholder="Paste your requirements here..."
               rows={hasResults ? 3 : 5}
               disabled={generating}
-              className="w-full resize-none bg-transparent text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
+              className="w-full resize-y bg-transparent text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none"
             />
 
             {/* Bottom bar */}
