@@ -451,6 +451,15 @@ export default function Dashboard() {
   const [pushedTickets, setPushedTickets] = useState<
     { title: string; issueKey: string }[]
   >([]);
+  const [duplicates, setDuplicates] = useState<
+    {
+      new_story_id: string;
+      existing_ticket_key: string;
+      existing_ticket_summary: string;
+      reason: string;
+    }[]
+  >([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -573,6 +582,7 @@ export default function Dashboard() {
     setGenerationStep("Saving requirements...");
     setError("");
     setBotMessage("");
+    setDuplicates([]);
     setStories([]);
     setSelectedIds(new Set());
     setPushResults([]);
@@ -660,11 +670,65 @@ export default function Dashboard() {
     }
   }
 
-  async function handlePushToJira() {
+  async function handleCheckAndPush() {
     const selectedStories = stories.filter((s) => selectedIds.has(s.id));
+    if (selectedStories.length === 0) return;
+
+    // Step 1: Check for duplicates
+    setCheckingDuplicates(true);
+    setDuplicates([]);
+    setGenerationStep("Checking for duplicate tickets...");
+
+    const checkRes = await fetch("/api/jira/check-duplicates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stories: selectedStories.map((s) => ({
+          id: s.id,
+          title: s.title,
+          persona: s.persona,
+          action: s.action,
+          benefit: s.benefit,
+        })),
+        jira_project_key: selectedProjectKey,
+      }),
+    });
+
+    setCheckingDuplicates(false);
+    setGenerationStep("");
+
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      if (checkData.duplicates?.length > 0) {
+        setDuplicates(checkData.duplicates);
+        // Deselect duplicates automatically
+        const dupIds = new Set(
+          checkData.duplicates.map(
+            (d: { new_story_id: string }) => d.new_story_id,
+          ),
+        );
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          dupIds.forEach((id) => next.delete(id as string));
+          return next;
+        });
+        return; // Stop here — user can review and click push again
+      }
+    }
+
+    // No duplicates — push directly
+    await pushStoriesToJira(selectedStories);
+  }
+
+  async function pushStoriesToJira(
+    storiesToPush?: EditableStoryData[],
+  ) {
+    const selectedStories =
+      storiesToPush || stories.filter((s) => selectedIds.has(s.id));
     if (selectedStories.length === 0) return;
     setPushing(true);
     setPushResults([]);
+    setDuplicates([]);
     setGenerationStep(
       `Sending ${selectedStories.length} ticket${selectedStories.length > 1 ? "s" : ""} to Jira...`,
     );
@@ -1106,21 +1170,78 @@ export default function Dashboard() {
                       </Button>
                       <Button
                         size="sm"
-                        onClick={handlePushToJira}
+                        onClick={
+                          duplicates.length > 0
+                            ? () => pushStoriesToJira()
+                            : handleCheckAndPush
+                        }
                         disabled={
-                          selectedIds.size === 0 || pushing || allPushed
+                          selectedIds.size === 0 ||
+                          pushing ||
+                          checkingDuplicates ||
+                          allPushed
                         }
                       >
-                        {pushing
-                          ? "Sending..."
-                          : allPushed
-                            ? "Sent to Jira"
-                            : `Send ${selectedIds.size} to Jira`}
+                        {checkingDuplicates
+                          ? "Checking..."
+                          : pushing
+                            ? "Sending..."
+                            : allPushed
+                              ? "Sent to Jira"
+                              : duplicates.length > 0
+                                ? `Send ${selectedIds.size} anyway`
+                                : `Send ${selectedIds.size} to Jira`}
                       </Button>
                     </>
                   )}
                 </div>
               </div>
+
+              {/* Duplicate warnings */}
+              {duplicates.length > 0 && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm">
+                  <p className="mb-3 font-medium text-yellow-500">
+                    Potential duplicates found ({duplicates.length}):
+                  </p>
+                  <ul className="space-y-2">
+                    {duplicates.map((d, i) => {
+                      const story = stories.find(
+                        (s) => s.id === d.new_story_id,
+                      );
+                      return (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="mt-0.5 text-yellow-500">!</span>
+                          <div>
+                            <p>
+                              <span className="font-medium">
+                                {story?.title || "Story"}
+                              </span>
+                              {" "}may duplicate{" "}
+                              <a
+                                href={`${jiraBaseUrl}/browse/${d.existing_ticket_key}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-primary underline underline-offset-4"
+                              >
+                                {d.existing_ticket_key}
+                              </a>
+                              <span className="text-muted-foreground">
+                                {" "}({d.existing_ticket_summary})
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {d.reason}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Duplicates have been deselected. Re-select them if you still want to push, or click &quot;Send anyway&quot;.
+                  </p>
+                </div>
+              )}
 
               {pushResults.length > 0 && (
                 <Card>
