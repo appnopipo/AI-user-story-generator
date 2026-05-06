@@ -446,6 +446,7 @@ export default function Dashboard() {
     { storyId: string; issueKey?: string; error?: string }[]
   >([]);
   const [jiraBaseUrl, setJiraBaseUrl] = useState("");
+  const [generationStep, setGenerationStep] = useState("");
   const [pushedTickets, setPushedTickets] = useState<
     { title: string; issueKey: string }[]
   >([]);
@@ -499,7 +500,9 @@ export default function Dashboard() {
           const newStory = storyToEditable(payload.new as GeneratedStory);
           setStories((prev) => {
             if (prev.some((s) => s.id === newStory.id)) return prev;
-            return [...prev, newStory];
+            const updated = [...prev, newStory];
+            setGenerationStep(`Generating stories... (${updated.length} created)`);
+            return updated;
           });
           setSelectedIds((prev) => new Set([...prev, newStory.id]));
         },
@@ -524,8 +527,12 @@ export default function Dashboard() {
         },
         (payload) => {
           const status = (payload.new as { status: string }).status;
+          if (status === "processing") {
+            setGenerationStep("AI is analyzing your requirements...");
+          }
           if (status === "completed" || status === "error") {
             setGenerating(false);
+            setGenerationStep("");
             if (status === "error") {
               setError("Generation failed. Please try again.");
             }
@@ -560,6 +567,7 @@ export default function Dashboard() {
   async function handleGenerate() {
     if (!text.trim() || !selectedProjectKey) return;
     setGenerating(true);
+    setGenerationStep("Saving requirements...");
     setError("");
     setStories([]);
     setSelectedIds(new Set());
@@ -574,6 +582,7 @@ export default function Dashboard() {
       return;
     }
 
+    setGenerationStep("Setting up project...");
     const { data: existingProjects } = await supabase
       .from("projects")
       .select("id")
@@ -600,6 +609,7 @@ export default function Dashboard() {
       if (createError || !newProject) {
         setError("Failed to create project");
         setGenerating(false);
+        setGenerationStep("");
         return;
       }
       projectId = newProject.id;
@@ -620,10 +630,12 @@ export default function Dashboard() {
     if (inputError || !input) {
       setError("Failed to save requirements");
       setGenerating(false);
+      setGenerationStep("");
       return;
     }
 
     setInputId(input.id);
+    setGenerationStep("Calling AI model...");
 
     const res = await fetch("/api/generate", {
       method: "POST",
@@ -635,6 +647,7 @@ export default function Dashboard() {
       const data = await res.json();
       setError(data.error || "Generation failed");
       setGenerating(false);
+      setGenerationStep("");
     }
   }
 
@@ -643,7 +656,9 @@ export default function Dashboard() {
     if (selectedStories.length === 0) return;
     setPushing(true);
     setPushResults([]);
+    setGenerationStep(`Sending ${selectedStories.length} ticket${selectedStories.length > 1 ? "s" : ""} to Jira...`);
 
+    let completed = 0;
     const results = await Promise.all(
       selectedStories.map(async (story) => {
         const res = await fetch(`/api/stories/${story.id}/jira`, {
@@ -666,6 +681,10 @@ export default function Dashboard() {
           }),
         });
         const data = await res.json();
+        completed++;
+        setGenerationStep(
+          `Pushing to Jira... (${completed}/${selectedStories.length})`,
+        );
         return {
           storyId: story.id,
           issueKey: data.issue_key,
@@ -675,6 +694,7 @@ export default function Dashboard() {
     );
 
     setPushing(false);
+    setGenerationStep("");
 
     // Check if all succeeded
     const succeeded = results.filter((r) => r.issueKey);
@@ -1004,9 +1024,9 @@ export default function Dashboard() {
                       </span>
                     )}
                   </h2>
-                  {generating && (
+                  {(generating || pushing) && generationStep && (
                     <span className="text-sm text-muted-foreground animate-pulse">
-                      Generating...
+                      {generationStep}
                     </span>
                   )}
                 </div>
