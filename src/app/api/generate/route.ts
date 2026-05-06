@@ -14,9 +14,11 @@ RULES:
 - If information is missing or ambiguous, flag it in the flagged_gaps array.
 - Assign a confidence score (0.0 to 1.0) based on how clearly the requirement was stated.
 - For each story, include the source_excerpt — the exact phrase or sentence from the input that this story derives from.
+- If the input contains NO actionable requirements at all (e.g. random text, greetings, single words, gibberish, or non-technical content), return an EMPTY stories array and a message explaining why. Do NOT create placeholder or meta stories about the inability to extract requirements. The stories array must be empty in this case.
 
 RESPOND WITH THIS EXACT JSON STRUCTURE:
 {
+  "message": "Optional message to the user (e.g. why no stories were generated)",
   "stories": [
     {
       "title": "Short descriptive title",
@@ -122,7 +124,13 @@ export async function POST(request: Request) {
       .trim();
 
     const parsed = JSON.parse(content);
-    const stories = parsed.stories || [];
+
+    // Filter out placeholder/meta stories the LLM may generate instead of returning empty
+    const INVALID_PATTERNS = /unable to|cannot extract|no (?:actionable )?requirements|not a requirements/i;
+    const stories = (parsed.stories || []).filter(
+      (s: { title?: string; confidence?: number }) =>
+        s.title && !INVALID_PATTERNS.test(s.title) && (s.confidence ?? 1) > 0.1
+    );
 
     // No stories generated — LLM couldn't extract requirements
     if (stories.length === 0) {
