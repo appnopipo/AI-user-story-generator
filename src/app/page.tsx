@@ -437,6 +437,7 @@ export default function Dashboard() {
   const [generating, setGenerating] = useState(false);
   const [inputId, setInputId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [botMessage, setBotMessage] = useState("");
 
   // Results state
   const [stories, setStories] = useState<EditableStoryData[]>([]);
@@ -569,6 +570,7 @@ export default function Dashboard() {
     setGenerating(true);
     setGenerationStep("Saving requirements...");
     setError("");
+    setBotMessage("");
     setStories([]);
     setSelectedIds(new Set());
     setPushResults([]);
@@ -643,9 +645,14 @@ export default function Dashboard() {
       body: JSON.stringify({ input_id: input.id, project_id: projectId }),
     });
 
+    const resData = await res.json();
+
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error || "Generation failed");
+      setError(resData.error || "Generation failed");
+      setGenerating(false);
+      setGenerationStep("");
+    } else if (resData.no_stories) {
+      setBotMessage(resData.message);
       setGenerating(false);
       setGenerationStep("");
     }
@@ -864,6 +871,10 @@ export default function Dashboard() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              ) : botMessage ? (
+                <div className="mx-auto max-w-2xl rounded-2xl bg-muted/50 px-6 py-5">
+                  <p className="text-sm leading-relaxed">{botMessage}</p>
                 </div>
               ) : (
                 <div className="text-center">

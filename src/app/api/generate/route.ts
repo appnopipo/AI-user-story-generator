@@ -124,6 +124,35 @@ export async function POST(request: Request) {
     const parsed = JSON.parse(content);
     const stories = parsed.stories || [];
 
+    // No stories generated — LLM couldn't extract requirements
+    if (stories.length === 0) {
+      const llmMessage =
+        parsed.message ||
+        "I couldn't identify any actionable requirements in the provided text. Try pasting a more specific requirements document, user story brief, or feature description.";
+
+      await admin
+        .from("requirement_inputs")
+        .update({ status: "completed" })
+        .eq("id", input_id);
+
+      await admin
+        .from("generation_runs")
+        .update({
+          status: "completed",
+          prompt_tokens: llmData.usage?.prompt_tokens || 0,
+          completion_tokens: llmData.usage?.completion_tokens || 0,
+          model_used: llmData.model || "unknown",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", run.id);
+
+      return NextResponse.json({
+        run_id: run.id,
+        no_stories: true,
+        message: llmMessage,
+      });
+    }
+
     // Insert stories
     if (stories.length > 0) {
       const storyRows = stories.map(
