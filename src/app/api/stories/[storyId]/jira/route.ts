@@ -17,7 +17,7 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { dry_run } = await request.json();
+  const { dry_run, issue_type, jira_project_key, edits } = await request.json();
 
   // Get user's Jira config
   const { data: profile } = await supabase
@@ -48,27 +48,38 @@ export async function POST(
     return NextResponse.json({ error: "Story not found" }, { status: 404 });
   }
 
-  // Get project key
-  const { data: project } = await supabase
-    .from("projects")
-    .select("jira_project_key")
-    .eq("id", story.project_id)
-    .single();
+  // Determine project key: prefer direct param, fallback to project lookup
+  let projectKey = jira_project_key;
+  if (!projectKey) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("jira_project_key")
+      .eq("id", story.project_id)
+      .single();
 
-  if (!project?.jira_project_key) {
+    projectKey = project?.jira_project_key;
+  }
+
+  if (!projectKey) {
     return NextResponse.json(
-      { error: "Jira project key not set on this project" },
+      { error: "Jira project key not provided" },
       { status: 400 }
     );
   }
+
+  // Apply any inline edits from the client
+  const storyData = edits
+    ? { ...story, ...edits }
+    : story;
 
   const storyPointsFieldId =
     process.env.JIRA_STORY_POINTS_FIELD_ID || "customfield_10016";
 
   const payload = buildJiraPayload(
-    story as GeneratedStory,
-    project.jira_project_key,
-    storyPointsFieldId
+    storyData as GeneratedStory,
+    projectKey,
+    storyPointsFieldId,
+    issue_type || "Story"
   );
 
   // Dry run: return the payload without sending
@@ -114,13 +125,20 @@ export async function POST(
 
   const jiraData = await jiraRes.json();
 
+  // Save edits if provided
+  const updateData: Record<string, unknown> = {
+    jira_issue_key: jiraData.key,
+    jira_sync_status: "synced",
+    jira_synced_at: new Date().toISOString(),
+  };
+
+  if (edits) {
+    Object.assign(updateData, edits, { is_edited: true });
+  }
+
   await supabase
     .from("generated_stories")
-    .update({
-      jira_issue_key: jiraData.key,
-      jira_sync_status: "synced",
-      jira_synced_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq("id", storyId);
 
   return NextResponse.json({ issue_key: jiraData.key });

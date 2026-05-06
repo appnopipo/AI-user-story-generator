@@ -3,7 +3,8 @@ import type { GeneratedStory, AcceptanceCriterion } from "@/lib/types";
 export function buildJiraPayload(
   story: GeneratedStory,
   projectKey: string,
-  storyPointsFieldId: string
+  storyPointsFieldId: string,
+  issueType: string = "Story"
 ) {
   const ac = Array.isArray(story.acceptance_criteria)
     ? story.acceptance_criteria
@@ -42,7 +43,7 @@ export function buildJiraPayload(
           },
         ],
       },
-      issuetype: { name: "Story" },
+      issuetype: { name: issueType },
       ...(story.priority && {
         priority: { name: priorityMap[story.priority] || "Medium" },
       }),
