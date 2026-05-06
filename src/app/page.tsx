@@ -769,6 +769,31 @@ export default function Dashboard() {
     }
   }
 
+  function handleRefine() {
+    // Collect all unique gaps from all stories
+    const allGaps = new Set<string>();
+    stories.forEach((s) => {
+      toArray<string>(s.flagged_gaps).forEach((gap) => allGaps.add(gap));
+    });
+
+    if (allGaps.size === 0) return;
+
+    const gapsList = Array.from(allGaps)
+      .map((g, i) => `${i + 1}. ${g}`)
+      .join("\n");
+
+    const refinement = `\n\n---\nThe AI flagged the following missing information. Please address these gaps to improve the generated stories:\n\n${gapsList}\n\nAdditional context:\n`;
+
+    setText((prev) => prev + refinement);
+    textareaRef.current?.focus();
+    textareaRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  const totalGaps = stories.reduce(
+    (count, s) => count + toArray<string>(s.flagged_gaps).length,
+    0,
+  );
+
   async function handleOnboardingComplete() {
     setShowOnboarding(false);
     setLoadingProjects(true);
@@ -1065,6 +1090,15 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   {stories.length > 0 && (
                     <>
+                      {totalGaps > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleRefine}
+                        >
+                          Refine ({totalGaps} gap{totalGaps > 1 ? "s" : ""})
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" onClick={toggleAll}>
                         {selectedIds.size === stories.length
                           ? "Deselect All"
