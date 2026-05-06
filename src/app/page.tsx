@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,10 +43,12 @@ function Footer() {
     <footer className="border-t border-border/50 px-6 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <img
+          <Image
             src="/appnovation-wordmark.png"
             alt="Appnovation"
-            className="h-5 opacity-60"
+            width={140}
+            height={20}
+            className="h-5 w-auto opacity-60"
           />
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
