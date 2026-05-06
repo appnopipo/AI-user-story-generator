@@ -19,7 +19,11 @@ export function buildJiraPayload(
     )
     .join("\n");
 
-  const description = `As a ${story.persona}, I want ${story.action}, so that ${story.benefit}.\n\n*Acceptance Criteria:*\n${acText}`;
+  const notes = (story as unknown as Record<string, unknown>).notes as string | undefined;
+  let description = `As a ${story.persona}, I want ${story.action}, so that ${story.benefit}.\n\n*Acceptance Criteria:*\n${acText}`;
+  if (notes?.trim()) {
+    description += `\n\n*Notes:*\n${notes.trim()}`;
+  }
 
   const priorityMap: Record<string, string> = {
     highest: "Highest",

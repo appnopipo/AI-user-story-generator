@@ -90,6 +90,7 @@ function storyToEditable(story: GeneratedStory): EditableStoryData {
     story_points: story.story_points,
     labels: toArray(story.labels),
     issue_type: "Story",
+    notes: "",
     source_excerpt: story.source_excerpt,
     confidence: story.confidence,
     flagged_gaps: toArray(story.flagged_gaps),
@@ -622,6 +623,7 @@ export default function Dashboard() {
               priority: story.priority,
               story_points: story.story_points,
               labels: story.labels,
+              notes: story.notes,
             },
           }),
         });

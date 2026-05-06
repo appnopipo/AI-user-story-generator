@@ -21,6 +21,7 @@ export interface EditableStoryData {
   story_points: number | null;
   labels: string[];
   issue_type: string;
+  notes: string;
   source_excerpt: string | null;
   confidence: number;
   flagged_gaps: string[];
@@ -181,6 +182,18 @@ export function EditableStoryCard({
             }
             placeholder="comma-separated labels"
             className="h-7 text-xs"
+          />
+        </div>
+
+        {/* Notes */}
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 text-xs text-muted-foreground">Notes:</span>
+          <Textarea
+            value={story.notes}
+            onChange={(e) => update({ notes: e.target.value })}
+            placeholder="Add links, context, or any extra info (e.g. Figma link)"
+            className="min-h-[32px] text-xs"
+            rows={1}
           />
         </div>
 
