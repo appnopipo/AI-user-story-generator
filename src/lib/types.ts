@@ -50,13 +50,8 @@ export interface GeneratedStory {
   source_excerpt: string | null;
   confidence: number;
   flagged_gaps: string[];
-  review_status: "pending" | "approved" | "rejected" | "changes_requested";
-  reviewer_id: string | null;
-  review_comment: string | null;
-  reviewed_at: string | null;
   jira_issue_key: string | null;
-  jira_sync_status: "not_synced" | "dry_run" | "synced" | "error";
-  jira_dry_run_payload: Record<string, unknown> | null;
+  jira_sync_status: "not_synced" | "synced" | "error";
   jira_synced_at: string | null;
   is_edited: boolean;
   created_at: string;

@@ -17,7 +17,7 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { dry_run, issue_type, jira_project_key, edits } = await request.json();
+  const { issue_type, jira_project_key, edits } = await request.json();
 
   // Get user's Jira config
   const { data: profile } = await supabase
@@ -82,20 +82,7 @@ export async function POST(
     issue_type || "Story"
   );
 
-  // Dry run: return the payload without sending
-  if (dry_run) {
-    await supabase
-      .from("generated_stories")
-      .update({
-        jira_dry_run_payload: payload,
-        jira_sync_status: "dry_run",
-      })
-      .eq("id", storyId);
-
-    return NextResponse.json({ payload });
-  }
-
-  // Real push to Jira
+  // Push to Jira
   const jiraUrl = `${profile.jira_base_url}/rest/api/3/issue`;
   const authHeader = Buffer.from(
     `${profile.jira_email}:${profile.jira_api_token}`

@@ -611,7 +611,6 @@ export default function Dashboard() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            dry_run: false,
             issue_type: story.issue_type,
             jira_project_key: selectedProjectKey,
             edits: {
