@@ -657,17 +657,67 @@ export default function Dashboard() {
       body: JSON.stringify({ input_id: input.id, project_id: projectId }),
     });
 
-    const resData = await res.json();
-
-    if (!res.ok) {
-      setError(resData.error || "Generation failed");
+    if (!res.ok || !res.body) {
+      const errData = await res.json().catch(() => ({}));
+      setError(errData.error || "Generation failed");
       setGenerating(false);
       setGenerationStep("");
-    } else if (resData.no_stories) {
-      setBotMessage(resData.message);
-      setGenerating(false);
-      setGenerationStep("");
+      return;
     }
+
+    // Read SSE stream
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+
+      const lines = sseBuffer.split("\n");
+      sseBuffer = lines.pop() || "";
+
+      let currentEvent = "";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith("data: ") && currentEvent) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            switch (currentEvent) {
+              case "status":
+                setGenerationStep(data.step);
+                break;
+              case "story": {
+                const editable = storyToEditable(data as GeneratedStory);
+                setStories((prev) => {
+                  if (prev.some((s) => s.id === editable.id)) return prev;
+                  return [...prev, editable];
+                });
+                setSelectedIds((prev) => new Set([...prev, editable.id]));
+                break;
+              }
+              case "no_stories":
+                setBotMessage(data.message);
+                break;
+              case "error":
+                setError(data.message);
+                break;
+              case "done":
+                break;
+            }
+          } catch {
+            // Skip malformed data
+          }
+          currentEvent = "";
+        }
+      }
+    }
+
+    setGenerating(false);
+    setGenerationStep("");
   }
 
   async function handleCheckAndPush() {

@@ -8,6 +8,8 @@ const SYSTEM_PROMPT = `You are a requirements analyst. Your task: convert raw re
 
 CRITICAL: You MUST respond with ONLY a valid JSON object. No markdown, no explanation, no text before or after the JSON. Start your response with { and end with }.
 
+IMPORTANT: Generate stories ONE AT A TIME. Output the opening of the JSON, then each complete story object before starting the next. This allows incremental processing.
+
 RULES:
 - ONLY generate stories from information explicitly present in the input. Do NOT invent requirements.
 - If the input is not a requirements document (e.g. it is a training guide, meeting agenda, or general description), extract any actionable requirements you can find and flag the rest as gaps.
@@ -38,11 +40,74 @@ RESPOND WITH THIS EXACT JSON STRUCTURE:
   ]
 }`;
 
+const INVALID_PATTERNS =
+  /unable to|cannot extract|no (?:actionable )?requirements|not a requirements/i;
+
 function getAdminClient() {
   return createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+}
+
+// Try to extract complete story objects from a partial JSON string
+function extractStories(partial: string): {
+  stories: Record<string, unknown>[];
+  message?: string;
+} {
+  // Clean markdown fences
+  let cleaned = partial
+    .replace(/^```(?:json)?\n?/gm, "")
+    .replace(/```$/gm, "")
+    .trim();
+
+  // Try parsing as complete JSON first
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Not valid yet — try to extract individual story objects
+  }
+
+  const stories: Record<string, unknown>[] = [];
+  let message: string | undefined;
+
+  // Extract message if present
+  const msgMatch = cleaned.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (msgMatch) {
+    message = msgMatch[1];
+  }
+
+  // Find story objects by matching balanced braces within the stories array
+  const storiesStart = cleaned.indexOf('"stories"');
+  if (storiesStart === -1) return { stories, message };
+
+  const arrayStart = cleaned.indexOf("[", storiesStart);
+  if (arrayStart === -1) return { stories, message };
+
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = arrayStart + 1; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (ch === "{") {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        const objStr = cleaned.substring(objStart, i + 1);
+        try {
+          const obj = JSON.parse(objStr);
+          if (obj.title) stories.push(obj);
+        } catch {
+          // Incomplete object, skip
+        }
+        objStart = -1;
+      }
+    }
+  }
+
+  return { stories, message };
 }
 
 export async function POST(request: Request) {
@@ -83,7 +148,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Update statuses to processing/running
+  // Update statuses
   await admin
     .from("requirement_inputs")
     .update({ status: "processing" })
@@ -94,144 +159,215 @@ export async function POST(request: Request) {
     .update({ status: "running", started_at: new Date().toISOString() })
     .eq("id", run.id);
 
-  // Call LLM
-  try {
-    const llmRes = await fetch(REQUESTY_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.REQUESTY_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "anthropic/claude-sonnet-4-20250514",
-        max_tokens: 8192,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: input.raw_text.substring(0, 15000) },
-        ],
-      }),
-    });
+  // Stream the response
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(event: string, data: unknown) {
+        controller.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+        );
+      }
 
-    if (!llmRes.ok) {
-      throw new Error(`LLM request failed: ${llmRes.status}`);
-    }
+      try {
+        send("status", { step: "Calling AI model..." });
 
-    const llmData = await llmRes.json();
-    let content = llmData.choices[0].message.content;
-    content = content
-      .replace(/^```(?:json)?\n?/gm, "")
-      .replace(/```$/gm, "")
-      .trim();
+        const llmRes = await fetch(REQUESTY_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.REQUESTY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "anthropic/claude-sonnet-4-20250514",
+            max_tokens: 8192,
+            stream: true,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: input.raw_text.substring(0, 15000) },
+            ],
+          }),
+        });
 
-    const parsed = JSON.parse(content);
+        if (!llmRes.ok || !llmRes.body) {
+          throw new Error(`LLM request failed: ${llmRes.status}`);
+        }
 
-    // Filter out placeholder/meta stories the LLM may generate instead of returning empty
-    const INVALID_PATTERNS = /unable to|cannot extract|no (?:actionable )?requirements|not a requirements/i;
-    const stories = (parsed.stories || []).filter(
-      (s: { title?: string; confidence?: number }) =>
-        s.title && !INVALID_PATTERNS.test(s.title) && (s.confidence ?? 1) > 0.1
-    );
+        send("status", { step: "AI is analyzing your requirements..." });
 
-    // No stories generated — LLM couldn't extract requirements
-    if (stories.length === 0) {
-      const llmMessage =
-        parsed.message ||
-        "I couldn't identify any actionable requirements in the provided text. Try pasting a more specific requirements document, user story brief, or feature description.";
+        // Read streaming response
+        const reader = llmRes.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = "";
+        let savedStoryCount = 0;
+        let buffer = "";
 
-      await admin
-        .from("requirement_inputs")
-        .update({ status: "completed" })
-        .eq("id", input_id);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      await admin
-        .from("generation_runs")
-        .update({
-          status: "completed",
-          prompt_tokens: llmData.usage?.prompt_tokens || 0,
-          completion_tokens: llmData.usage?.completion_tokens || 0,
-          model_used: llmData.model || "unknown",
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", run.id);
+          buffer += decoder.decode(value, { stream: true });
 
-      return NextResponse.json({
-        run_id: run.id,
-        no_stories: true,
-        message: llmMessage,
-      });
-    }
+          // Parse SSE chunks from the LLM
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-    // Insert stories
-    if (stories.length > 0) {
-      const storyRows = stories.map(
-        (s: {
-          title: string;
-          persona: string;
-          action: string;
-          benefit: string;
-          acceptance_criteria: unknown[];
-          priority: string;
-          story_points: number;
-          labels: string[];
-          source_excerpt: string;
-          confidence: number;
-          flagged_gaps: string[];
-        }) => ({
-          input_id,
-          project_id,
-          title: s.title || "Untitled Story",
-          persona: s.persona || "user",
-          action: s.action || "",
-          benefit: s.benefit || "",
-          acceptance_criteria: s.acceptance_criteria || [],
-          priority: s.priority || "medium",
-          story_points: s.story_points || null,
-          labels: s.labels || [],
-          source_excerpt: s.source_excerpt || null,
-          confidence: s.confidence || 0.5,
-          flagged_gaps: s.flagged_gaps || [],
-        })
-      );
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
 
-      await admin.from("generated_stories").insert(storyRows);
-    }
+            try {
+              const chunk = JSON.parse(data);
+              const delta = chunk.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullContent += delta;
 
-    // Mark as completed
-    await admin
-      .from("requirement_inputs")
-      .update({ status: "completed" })
-      .eq("id", input_id);
+                // Try to extract stories from what we have so far
+                const { stories } = extractStories(fullContent);
+                const validStories = stories.filter(
+                  (s) =>
+                    s.title &&
+                    !INVALID_PATTERNS.test(s.title as string) &&
+                    ((s.confidence as number) ?? 1) > 0.1
+                );
 
-    await admin
-      .from("generation_runs")
-      .update({
-        status: "completed",
-        prompt_tokens: llmData.usage?.prompt_tokens || 0,
-        completion_tokens: llmData.usage?.completion_tokens || 0,
-        model_used: llmData.model || "unknown",
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", run.id);
+                // Save and stream any new complete stories
+                while (savedStoryCount < validStories.length) {
+                  const story = validStories[savedStoryCount];
 
-    return NextResponse.json({ run_id: run.id });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error occurred";
+                  const storyRow = {
+                    input_id,
+                    project_id,
+                    title: (story.title as string) || "Untitled Story",
+                    persona: (story.persona as string) || "user",
+                    action: (story.action as string) || "",
+                    benefit: (story.benefit as string) || "",
+                    acceptance_criteria: story.acceptance_criteria || [],
+                    priority: (story.priority as string) || "medium",
+                    story_points: (story.story_points as number) || null,
+                    labels: (story.labels as string[]) || [],
+                    source_excerpt: (story.source_excerpt as string) || null,
+                    confidence: (story.confidence as number) || 0.5,
+                    flagged_gaps: (story.flagged_gaps as string[]) || [],
+                  };
 
-    await admin
-      .from("requirement_inputs")
-      .update({ status: "error" })
-      .eq("id", input_id);
+                  const { data: inserted } = await admin
+                    .from("generated_stories")
+                    .insert(storyRow)
+                    .select()
+                    .single();
 
-    await admin
-      .from("generation_runs")
-      .update({
-        status: "error",
-        error_message: message,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", run.id);
+                  if (inserted) {
+                    send("story", inserted);
+                  }
 
-    return NextResponse.json({ run_id: run.id, error: message }, { status: 500 });
-  }
+                  savedStoryCount++;
+                  send("status", {
+                    step: `Generating stories... (${savedStoryCount} created)`,
+                  });
+                }
+              }
+            } catch {
+              // Skip malformed chunks
+            }
+          }
+        }
+
+        // Final parse to catch the message field and any remaining stories
+        const final = extractStories(fullContent);
+        const validStories = (final.stories || []).filter(
+          (s) =>
+            s.title &&
+            !INVALID_PATTERNS.test(s.title as string) &&
+            ((s.confidence as number) ?? 1) > 0.1
+        );
+
+        // Save any stories we missed during streaming
+        while (savedStoryCount < validStories.length) {
+          const story = validStories[savedStoryCount];
+          const storyRow = {
+            input_id,
+            project_id,
+            title: (story.title as string) || "Untitled Story",
+            persona: (story.persona as string) || "user",
+            action: (story.action as string) || "",
+            benefit: (story.benefit as string) || "",
+            acceptance_criteria: story.acceptance_criteria || [],
+            priority: (story.priority as string) || "medium",
+            story_points: (story.story_points as number) || null,
+            labels: (story.labels as string[]) || [],
+            source_excerpt: (story.source_excerpt as string) || null,
+            confidence: (story.confidence as number) || 0.5,
+            flagged_gaps: (story.flagged_gaps as string[]) || [],
+          };
+
+          const { data: inserted } = await admin
+            .from("generated_stories")
+            .insert(storyRow)
+            .select()
+            .single();
+
+          if (inserted) {
+            send("story", inserted);
+          }
+          savedStoryCount++;
+        }
+
+        // No stories case
+        if (savedStoryCount === 0) {
+          const llmMessage =
+            final.message ||
+            "I couldn't identify any actionable requirements in the provided text. Try pasting a more specific requirements document, user story brief, or feature description.";
+          send("no_stories", { message: llmMessage });
+        }
+
+        // Mark as completed
+        await admin
+          .from("requirement_inputs")
+          .update({ status: "completed" })
+          .eq("id", input_id);
+
+        await admin
+          .from("generation_runs")
+          .update({
+            status: "completed",
+            model_used: "anthropic/claude-sonnet-4-20250514",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", run.id);
+
+        send("done", { run_id: run.id, story_count: savedStoryCount });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error occurred";
+
+        await admin
+          .from("requirement_inputs")
+          .update({ status: "error" })
+          .eq("id", input_id);
+
+        await admin
+          .from("generation_runs")
+          .update({
+            status: "error",
+            error_message: message,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", run.id);
+
+        send("error", { message });
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
