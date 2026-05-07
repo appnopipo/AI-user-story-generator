@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   EditableStoryCard,
@@ -109,11 +108,6 @@ interface JiraProject {
   issueTypes: { id: string; name: string }[];
 }
 
-interface ChatMessage {
-  role: "bot" | "user";
-  text: string;
-}
-
 function storyToEditable(story: GeneratedStory): EditableStoryData {
   return {
     id: story.id,
@@ -134,166 +128,27 @@ function storyToEditable(story: GeneratedStory): EditableStoryData {
   };
 }
 
-// --- Onboarding chat ---
+// --- Connect Jira screen ---
 
-function OnboardingChat({
-  onComplete,
-  onBack,
-  mode = "setup",
-}: {
-  onComplete: () => void;
-  onBack?: () => void;
-  mode?: "setup" | "reconfigure";
-}) {
+function ConnectJira({ onBack }: { onBack?: () => void }) {
   const supabase = createClient();
-  const [inputValue, setInputValue] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [thinking, setThinking] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const initRef = useRef(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, thinking]);
-
-  // Get initial greeting from LLM
-  useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
-
-    async function init() {
-      const initMessage =
-        mode === "reconfigure"
-          ? "I want to change my Jira settings."
-          : "Hi, I want to set up my Jira connection.";
-
-      const res = await fetch("/api/chat/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", text: initMessage }],
-          mode,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setMessages([{ role: "bot", text: data.message }]);
-      } else {
-        setMessages([
-          {
-            role: "bot",
-            text: "Hi! Let's connect your Jira. What's your Jira base URL? (e.g. https://yourteam.atlassian.net)",
-          },
-        ]);
-      }
-      setThinking(false);
-    }
-    init();
-  }, []);
-
-  async function handleSubmit() {
-    if (!inputValue.trim() || thinking || saving) return;
-
-    const userMsg = inputValue.trim();
-    const newMessages: ChatMessage[] = [
-      ...messages,
-      { role: "user", text: userMsg },
-    ];
-    setMessages(newMessages);
-    setInputValue("");
-    setThinking(true);
-
-    // Send full conversation to LLM
-    const res = await fetch("/api/chat/setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: newMessages, mode }),
+  function handleConnect() {
+    const redirectUri = `${window.location.origin}/auth/atlassian/callback`;
+    const params = new URLSearchParams({
+      audience: "api.atlassian.com",
+      client_id: process.env.NEXT_PUBLIC_ATLASSIAN_CLIENT_ID || "",
+      scope: "read:jira-work write:jira-work offline_access",
+      redirect_uri: redirectUri,
+      response_type: "code",
+      prompt: "consent",
     });
-
-    if (!res.ok) {
-      setMessages([
-        ...newMessages,
-        { role: "bot", text: "Something went wrong. Please try again." },
-      ]);
-      setThinking(false);
-      return;
-    }
-
-    const data = await res.json();
-    setMessages([...newMessages, { role: "bot", text: data.message }]);
-    setThinking(false);
-
-    // If all credentials are collected, save and validate
-    if (
-      data.complete &&
-      data.extracted?.jira_base_url &&
-      data.extracted?.jira_email &&
-      data.extracted?.jira_api_token
-    ) {
-      setSaving(true);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          jira_base_url: data.extracted.jira_base_url,
-          jira_email: data.extracted.jira_email,
-          jira_api_token: data.extracted.jira_api_token,
-        })
-        .eq("id", user.id);
-
-      if (error) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "bot",
-            text: `Failed to save credentials: ${error.message}. Please try again.`,
-          },
-        ]);
-        setSaving(false);
-        return;
-      }
-
-      // Validate connection
-      const validateRes = await fetch("/api/jira/projects");
-      if (!validateRes.ok) {
-        const errData = await validateRes.json();
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "bot",
-            text: `Could not connect to Jira: ${errData.error || "unknown error"}. Please check your credentials and try again.`,
-          },
-        ]);
-        setSaving(false);
-        return;
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        { role: "bot", text: "Connected! Loading your projects..." },
-      ]);
-
-      setSaving(false);
-      setTimeout(onComplete, 800);
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !thinking && !saving) {
-      handleSubmit();
-    }
+    window.location.href = `https://auth.atlassian.com/authorize?${params.toString()}`;
   }
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header */}
       <header className="flex items-center justify-between border-b border-border/50 px-6 py-4">
         <div className="flex items-center gap-3">
           <Logo />
@@ -306,17 +161,7 @@ function OnboardingChat({
               className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="Back to app"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 12H5" />
                 <polyline points="12 19 5 12 12 5" />
               </svg>
@@ -330,17 +175,7 @@ function OnboardingChat({
             className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Sign out"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />
@@ -349,60 +184,36 @@ function OnboardingChat({
         </div>
       </header>
 
-      {/* Chat area centered */}
       <div className="flex flex-1 items-center justify-center p-6">
-        <div className="w-full max-w-2xl">
-          <div className="mb-6 space-y-4 max-h-[60vh] overflow-y-auto px-1">
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/50"
-                  }`}
-                >
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-            {thinking && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl bg-muted/50 px-4 py-3 text-sm">
-                  <span className="inline-flex gap-1">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms]" />
-                  </span>
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
+        <div className="w-full max-w-md text-center">
+          <div className="mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 text-muted-foreground">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            <h2 className="mb-2 text-xl font-semibold">Connect your Jira</h2>
+            <p className="text-sm text-muted-foreground">
+              Sign in with your Atlassian account to access your Jira projects.
+              We&apos;ll automatically detect your workspace and available projects.
+            </p>
           </div>
 
-          {/* Input bar */}
-          <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-card px-4 py-3">
-            <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your response..."
-              disabled={thinking || saving}
-              autoFocus
-              className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-            />
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={!inputValue.trim() || thinking || saving}
-              className="shrink-0 rounded-xl"
-            >
-              Send
-            </Button>
-          </div>
+          <Button onClick={handleConnect} className="w-full rounded-xl">
+            <svg viewBox="0 0 32 32" width="20" height="20" className="mr-2">
+              <defs>
+                <linearGradient id="jira-blue" x1="98%" y1="0%" x2="58%" y2="44%">
+                  <stop offset="18%" stopColor="#0052CC" />
+                  <stop offset="100%" stopColor="#2684FF" />
+                </linearGradient>
+              </defs>
+              <path d="M27.1 14.3L17 4.2 16 3.2l-9.9 9.9c-.8.8-.8 2 0 2.8l6.5 6.5L16 19l-3.4-3.4 3.4-3.4 3.4 3.4-3.4 3.4 3.4 3.4 6.5-6.5c.9-.6.9-1.8.2-2.6z" fill="url(#jira-blue)" />
+            </svg>
+            Connect with Atlassian
+          </Button>
+
+          {error && (
+            <p className="mt-4 text-sm text-destructive">{error}</p>
+          )}
         </div>
       </div>
       <Footer />
@@ -420,7 +231,7 @@ export default function Dashboard() {
 
   // Jira connection state
   const [jiraConfigured, setJiraConfigured] = useState<boolean | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
 
   // Input state
   const [text, setText] = useState("");
@@ -463,27 +274,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function init() {
-      // Fetch Jira base URL from profile
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("jira_base_url")
-          .eq("id", user.id)
-          .single();
-        if (profile?.jira_base_url) {
-          setJiraBaseUrl(profile.jira_base_url);
-        }
-      }
-
       const res = await fetch("/api/jira/projects");
       if (res.ok) {
         const data = await res.json();
         setJiraProjects(data.projects || []);
         if (data.projects?.length > 0) {
           setSelectedProjectKey(data.projects[0].key);
+        }
+        if (data.site_url) {
+          setJiraBaseUrl(data.site_url);
         }
         setJiraConfigured(true);
       } else {
@@ -912,20 +711,7 @@ export default function Dashboard() {
     0,
   );
 
-  async function handleOnboardingComplete() {
-    setShowOnboarding(false);
-    setLoadingProjects(true);
-    const res = await fetch("/api/jira/projects");
-    if (res.ok) {
-      const data = await res.json();
-      setJiraProjects(data.projects || []);
-      if (data.projects?.length > 0) {
-        setSelectedProjectKey(data.projects[0].key);
-      }
-      setJiraConfigured(true);
-    }
-    setLoadingProjects(false);
-  }
+
 
   const selectedProject = jiraProjects.find(
     (p) => p.key === selectedProjectKey,
@@ -946,13 +732,11 @@ export default function Dashboard() {
     );
   }
 
-  // Onboarding
-  if (!jiraConfigured || showOnboarding) {
+  // Connect Jira
+  if (!jiraConfigured || showConnect) {
     return (
-      <OnboardingChat
-        onComplete={handleOnboardingComplete}
-        onBack={jiraConfigured ? () => setShowOnboarding(false) : undefined}
-        mode={jiraConfigured ? "reconfigure" : "setup"}
+      <ConnectJira
+        onBack={jiraConfigured ? () => setShowConnect(false) : undefined}
       />
     );
   }
@@ -967,7 +751,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setShowOnboarding(true)}
+            onClick={() => setShowConnect(true)}
             className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Jira settings"
           >

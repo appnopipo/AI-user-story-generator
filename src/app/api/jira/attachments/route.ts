@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getJiraAuth } from "@/lib/jira-auth";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -22,28 +23,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("jira_base_url, jira_email, jira_api_token")
-    .eq("id", user.id)
-    .single();
-
-  if (
-    !profile?.jira_base_url ||
-    !profile?.jira_email ||
-    !profile?.jira_api_token
-  ) {
+  const jira = await getJiraAuth(supabase, user.id);
+  if (!jira) {
     return NextResponse.json(
-      { error: "Jira credentials not configured" },
+      { error: "Jira not connected" },
       { status: 400 }
     );
   }
 
-  const authHeader = Buffer.from(
-    `${profile.jira_email}:${profile.jira_api_token}`
-  ).toString("base64");
-
-  const url = `${profile.jira_base_url}/rest/api/3/issue/${issueKey}/attachments`;
+  const url = jira.jiraUrl(`/issue/${issueKey}/attachments`);
 
   const results = await Promise.all(
     files.map(async (file) => {
@@ -53,7 +41,7 @@ export async function POST(request: Request) {
       const res = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Basic ${authHeader}`,
+          Authorization: `Bearer ${jira.accessToken}`,
           "X-Atlassian-Token": "no-check",
         },
         body: jiraForm,

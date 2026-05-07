@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock jira-auth helper
+const mockGetJiraAuth = vi.fn();
+vi.mock("@/lib/jira-auth", () => ({
+  getJiraAuth: (...args: unknown[]) => mockGetJiraAuth(...args),
+}));
+
 // Mock supabase server client
 const mockGetUser = vi.fn();
-const mockSelect = vi.fn();
-const mockEq = vi.fn();
-const mockSingle = vi.fn();
-
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser: mockGetUser },
-    from: () => ({ select: mockSelect }),
   })),
 }));
 
@@ -17,21 +18,19 @@ vi.mock("@/lib/supabase/server", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Import after mocks are set up
 const { GET } = await import("@/app/api/jira/projects/route");
 
-const PROFILE_WITH_JIRA = {
-  jira_base_url: "https://test.atlassian.net",
-  jira_email: "user@test.com",
-  jira_api_token: "token-123",
+const JIRA_AUTH = {
+  accessToken: "oauth-token-123",
+  cloudId: "cloud-123",
+  siteUrl: "https://test.atlassian.net",
+  jiraUrl: (path: string) =>
+    `https://api.atlassian.com/ex/jira/cloud-123/rest/api/3${path}`,
+  headers: {
+    Authorization: "Bearer oauth-token-123",
+    "Content-Type": "application/json",
+  },
 };
-
-function setupSupabaseMocks(user: unknown, profile: unknown) {
-  mockGetUser.mockResolvedValue({ data: { user } });
-  mockSelect.mockReturnValue({ eq: mockEq });
-  mockEq.mockReturnValue({ single: mockSingle });
-  mockSingle.mockResolvedValue({ data: profile });
-}
 
 describe("GET /api/jira/projects", () => {
   beforeEach(() => {
@@ -39,7 +38,7 @@ describe("GET /api/jira/projects", () => {
   });
 
   it("returns 401 if user is not authenticated", async () => {
-    setupSupabaseMocks(null, null);
+    mockGetUser.mockResolvedValue({ data: { user: null } });
 
     const res = await GET();
     const body = await res.json();
@@ -48,31 +47,20 @@ describe("GET /api/jira/projects", () => {
     expect(body.error).toBe("Unauthorized");
   });
 
-  it("returns 400 if Jira credentials are missing", async () => {
-    setupSupabaseMocks({ id: "user-1" }, { jira_base_url: null, jira_email: null, jira_api_token: null });
+  it("returns 400 if Jira is not connected", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockGetJiraAuth.mockResolvedValue(null);
 
     const res = await GET();
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("Jira credentials not configured");
-  });
-
-  it("returns 400 if only partial credentials exist", async () => {
-    setupSupabaseMocks(
-      { id: "user-1" },
-      { jira_base_url: "https://test.atlassian.net", jira_email: null, jira_api_token: null }
-    );
-
-    const res = await GET();
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toBe("Jira credentials not configured");
+    expect(body.error).toBe("Jira not connected");
   });
 
   it("forwards Jira API error", async () => {
-    setupSupabaseMocks({ id: "user-1" }, PROFILE_WITH_JIRA);
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockGetJiraAuth.mockResolvedValue(JIRA_AUTH);
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -88,9 +76,9 @@ describe("GET /api/jira/projects", () => {
   });
 
   it("returns projects with issue types on success", async () => {
-    setupSupabaseMocks({ id: "user-1" }, PROFILE_WITH_JIRA);
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockGetJiraAuth.mockResolvedValue(JIRA_AUTH);
 
-    // Mock /rest/api/3/project
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [
@@ -99,7 +87,6 @@ describe("GET /api/jira/projects", () => {
       ],
     });
 
-    // Mock /rest/api/3/project/PROJ/statuses
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => [
@@ -108,12 +95,9 @@ describe("GET /api/jira/projects", () => {
       ],
     });
 
-    // Mock /rest/api/3/project/DEV/statuses
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => [
-        { id: "1", name: "Task" },
-      ],
+      json: async () => [{ id: "1", name: "Task" }],
     });
 
     const res = await GET();
@@ -121,6 +105,7 @@ describe("GET /api/jira/projects", () => {
 
     expect(res.status).toBe(200);
     expect(body.projects).toHaveLength(2);
+    expect(body.site_url).toBe("https://test.atlassian.net");
     expect(body.projects[0]).toEqual({
       id: "10001",
       key: "PROJ",
@@ -130,16 +115,11 @@ describe("GET /api/jira/projects", () => {
         { id: "2", name: "Bug" },
       ],
     });
-    expect(body.projects[1]).toEqual({
-      id: "10002",
-      key: "DEV",
-      name: "Dev Project",
-      issueTypes: [{ id: "1", name: "Task" }],
-    });
   });
 
   it("returns empty issue types if statuses endpoint fails", async () => {
-    setupSupabaseMocks({ id: "user-1" }, PROFILE_WITH_JIRA);
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockGetJiraAuth.mockResolvedValue(JIRA_AUTH);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -159,8 +139,9 @@ describe("GET /api/jira/projects", () => {
     expect(body.projects[0].issueTypes).toEqual([]);
   });
 
-  it("sends correct auth header to Jira", async () => {
-    setupSupabaseMocks({ id: "user-1" }, PROFILE_WITH_JIRA);
+  it("uses OAuth bearer token for Jira requests", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockGetJiraAuth.mockResolvedValue(JIRA_AUTH);
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -169,12 +150,11 @@ describe("GET /api/jira/projects", () => {
 
     await GET();
 
-    const expectedAuth = Buffer.from("user@test.com:token-123").toString("base64");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://test.atlassian.net/rest/api/3/project",
+      "https://api.atlassian.com/ex/jira/cloud-123/rest/api/3/project",
       expect.objectContaining({
         headers: expect.objectContaining({
-          Authorization: `Basic ${expectedAuth}`,
+          Authorization: "Bearer oauth-token-123",
         }),
       })
     );

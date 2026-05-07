@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildJiraPayload } from "@/lib/jira";
+import { getJiraAuth } from "@/lib/jira-auth";
 import type { GeneratedStory } from "@/lib/types";
 
 export async function POST(
@@ -19,20 +20,10 @@ export async function POST(
 
   const { issue_type, jira_project_key, edits } = await request.json();
 
-  // Get user's Jira config
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("jira_base_url, jira_email, jira_api_token")
-    .eq("id", user.id)
-    .single();
-
-  if (
-    !profile?.jira_base_url ||
-    !profile?.jira_email ||
-    !profile?.jira_api_token
-  ) {
+  const jira = await getJiraAuth(supabase, user.id);
+  if (!jira) {
     return NextResponse.json(
-      { error: "Jira credentials not configured. Update your profile with Jira base URL, email, and API token." },
+      { error: "Jira not connected. Please reconnect your Jira account." },
       { status: 400 }
     );
   }
@@ -48,7 +39,7 @@ export async function POST(
     return NextResponse.json({ error: "Story not found" }, { status: 404 });
   }
 
-  // Determine project key: prefer direct param, fallback to project lookup
+  // Determine project key
   let projectKey = jira_project_key;
   if (!projectKey) {
     const { data: project } = await supabase
@@ -56,7 +47,6 @@ export async function POST(
       .select("jira_project_key")
       .eq("id", story.project_id)
       .single();
-
     projectKey = project?.jira_project_key;
   }
 
@@ -67,10 +57,7 @@ export async function POST(
     );
   }
 
-  // Apply any inline edits from the client
-  const storyData = edits
-    ? { ...story, ...edits }
-    : story;
+  const storyData = edits ? { ...story, ...edits } : story;
 
   const storyPointsFieldId =
     process.env.JIRA_STORY_POINTS_FIELD_ID || "customfield_10016";
@@ -82,18 +69,10 @@ export async function POST(
     issue_type || "Story"
   );
 
-  // Push to Jira
-  const jiraUrl = `${profile.jira_base_url}/rest/api/3/issue`;
-  const authHeader = Buffer.from(
-    `${profile.jira_email}:${profile.jira_api_token}`
-  ).toString("base64");
-
-  const jiraRes = await fetch(jiraUrl, {
+  // Push to Jira via OAuth
+  const jiraRes = await fetch(jira.jiraUrl("/issue"), {
     method: "POST",
-    headers: {
-      Authorization: `Basic ${authHeader}`,
-      "Content-Type": "application/json",
-    },
+    headers: jira.headers,
     body: JSON.stringify(payload),
   });
 
@@ -112,7 +91,6 @@ export async function POST(
 
   const jiraData = await jiraRes.json();
 
-  // Save edits if provided
   const updateData: Record<string, unknown> = {
     jira_issue_key: jiraData.key,
     jira_sync_status: "synced",

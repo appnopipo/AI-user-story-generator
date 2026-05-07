@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getJiraAuth } from "@/lib/jira-auth";
 
 export async function GET() {
   const supabase = await createClient();
@@ -11,37 +12,18 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("jira_base_url, jira_email, jira_api_token")
-    .eq("id", user.id)
-    .single();
-
-  if (
-    !profile?.jira_base_url ||
-    !profile?.jira_email ||
-    !profile?.jira_api_token
-  ) {
+  const jira = await getJiraAuth(supabase, user.id);
+  if (!jira) {
     return NextResponse.json(
-      { error: "Jira credentials not configured" },
+      { error: "Jira not connected" },
       { status: 400 }
     );
   }
 
-  const authHeader = Buffer.from(
-    `${profile.jira_email}:${profile.jira_api_token}`
-  ).toString("base64");
-
-  // Fetch projects from Jira
-  const projectsRes = await fetch(
-    `${profile.jira_base_url}/rest/api/3/project`,
-    {
-      headers: {
-        Authorization: `Basic ${authHeader}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+  // Fetch projects
+  const projectsRes = await fetch(jira.jiraUrl("/project"), {
+    headers: jira.headers,
+  });
 
   if (!projectsRes.ok) {
     const errBody = await projectsRes.text();
@@ -53,18 +35,13 @@ export async function GET() {
 
   const projects = await projectsRes.json();
 
-  // Fetch issue types for each project (in parallel)
+  // Fetch issue types per project
   const projectsWithTypes = await Promise.all(
     projects.map(
       async (project: { id: string; key: string; name: string }) => {
         const typesRes = await fetch(
-          `${profile.jira_base_url}/rest/api/3/project/${project.key}/statuses`,
-          {
-            headers: {
-              Authorization: `Basic ${authHeader}`,
-              "Content-Type": "application/json",
-            },
-          }
+          jira.jiraUrl(`/project/${project.key}/statuses`),
+          { headers: jira.headers }
         );
 
         let issueTypes: { id: string; name: string }[] = [];
@@ -88,5 +65,8 @@ export async function GET() {
     )
   );
 
-  return NextResponse.json({ projects: projectsWithTypes });
+  return NextResponse.json({
+    projects: projectsWithTypes,
+    site_url: jira.siteUrl,
+  });
 }

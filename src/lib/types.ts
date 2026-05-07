@@ -2,9 +2,11 @@ export interface Profile {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
-  jira_api_token: string | null;
-  jira_email: string | null;
-  jira_base_url: string | null;
+  atlassian_access_token: string | null;
+  atlassian_refresh_token: string | null;
+  atlassian_token_expires_at: string | null;
+  atlassian_cloud_id: string | null;
+  atlassian_site_url: string | null;
   created_at: string;
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getJiraAuth } from "@/lib/jira-auth";
 
 const REQUESTY_API_URL = "https://router.requesty.ai/v1/chat/completions";
 
@@ -48,37 +49,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get Jira credentials
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("jira_base_url, jira_email, jira_api_token")
-    .eq("id", user.id)
-    .single();
-
-  if (
-    !profile?.jira_base_url ||
-    !profile?.jira_email ||
-    !profile?.jira_api_token
-  ) {
+  const jira = await getJiraAuth(supabase, user.id);
+  if (!jira) {
     return NextResponse.json(
-      { error: "Jira credentials not configured" },
+      { error: "Jira not connected" },
       { status: 400 }
     );
   }
 
-  const authHeader = Buffer.from(
-    `${profile.jira_email}:${profile.jira_api_token}`
-  ).toString("base64");
-
   // Fetch existing tickets from the Jira project (last 100)
-  const jiraUrl = `${profile.jira_base_url}/rest/api/3/search/jql`;
-
-  const jiraRes = await fetch(jiraUrl, {
+  const jiraRes = await fetch(jira.jiraUrl("/search/jql"), {
     method: "POST",
-    headers: {
-      Authorization: `Basic ${authHeader}`,
-      "Content-Type": "application/json",
-    },
+    headers: jira.headers,
     body: JSON.stringify({
       jql: `project = ${jira_project_key} ORDER BY created DESC`,
       maxResults: 100,
@@ -112,12 +94,11 @@ export async function POST(request: Request) {
     })
   );
 
-  // If no existing tickets, no duplicates possible
   if (existingTickets.length === 0) {
     return NextResponse.json({ duplicates: [] });
   }
 
-  // Prepare stories summary for LLM
+  // Prepare stories for LLM
   const newStoriesSummary = stories.map(
     (s: {
       id: string;
